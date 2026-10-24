@@ -1,0 +1,9 @@
+{
+    "name": "suitecrm-mcp/phpstan-tools",
+    "description": "Isolated PHPStan static analyzer",
+    "type": "project",
+    "license": "AGPL-3.0-or-later",
+    "require-dev": {
+        "phpstan/phpstan": "^2.0"
+    }
+}

@@ -1,0 +1,60 @@
+{
+    "name": "suitecrm-mcp/server",
+    "description": "Reusable private MCP server for SuiteCRM with individual OAuth access and optional independently approved changes",
+    "type": "project",
+    "license": "AGPL-3.0-or-later",
+    "require": {
+        "php": "^8.5",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-pdo_sqlite": "*",
+        "ext-sodium": "*",
+        "mcp/sdk": "^0.9.0",
+        "nyholm/psr7": "^1.8",
+        "nyholm/psr7-server": "^1.1",
+        "firebase/php-jwt": "^7.2"
+    },
+    "require-dev": {
+        "bamarni/composer-bin-plugin": "^1.9.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "SuiteCrmMcp\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SuiteCrmMcp\\Tests\\": "tests/php/"
+        }
+    },
+    "scripts": {
+        "lint": "find src public bin tests/php -name \\*.php -exec php -l {} \\;",
+        "test": "vendor-bin/phpunit/vendor/bin/phpunit -c phpunit.xml.dist",
+        "cs:check": "vendor-bin/php-cs-fixer/vendor/bin/php-cs-fixer fix --dry-run --diff --using-cache=no --config=.php-cs-fixer.dist.php",
+        "cs:fix": "vendor-bin/php-cs-fixer/vendor/bin/php-cs-fixer fix --using-cache=no --config=.php-cs-fixer.dist.php",
+        "analyse": "vendor-bin/phpstan/vendor/bin/phpstan analyse -c phpstan.neon.dist --no-progress --memory-limit=1G",
+        "check": [
+            "@lint",
+            "@cs:check",
+            "@analyse",
+            "@test"
+        ]
+    },
+    "config": {
+        "sortPackages": true,
+        "platform": {
+            "php": "8.5.0"
+        },
+        "allow-plugins": {
+            "php-http/discovery": false,
+            "bamarni/composer-bin-plugin": true
+        }
+    },
+    "extra": {
+        "bamarni-bin": {
+            "bin-links": false,
+            "target-directory": "vendor-bin",
+            "forward-command": false
+        }
+    }
+}

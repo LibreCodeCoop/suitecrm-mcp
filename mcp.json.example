@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "librecode-suitecrm": {
+      "type": "streamable-http",
+      "extensions": {
+        "com.openai": {
+          "tunnelId": "tunnel_REPLACE_WITH_VERIFIED_32_CHARACTER_ID",
+          "auth": {
+            "type": "oauth",
+            "client": {
+              "mode": "provided",
+              "clientId": "REPLACE_WITH_REGISTERED_CHATGPT_OAUTH_CLIENT_ID"
+            },
+            "baseScopes": [
+              "mcp:read"
+            ],
+            "defaultScopes": [
+              "mcp:read"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

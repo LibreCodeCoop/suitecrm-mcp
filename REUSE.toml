@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+version = 1
+SPDX-PackageName = "suitecrm-mcp-server"
+SPDX-PackageSupplier = "SuiteCRM MCP contributors"
+SPDX-PackageDownloadLocation = "https://github.com/LibreCodeCoop/suitecrm-mcp/"
+
+[[annotations]]
+path = [
+    "composer.json",
+    "composer.lock",
+    "plugin.json",
+    "mcp.json.example",
+    "renovate.json",
+    "vendor-bin/phpunit/composer.json",
+    "vendor-bin/phpunit/composer.lock",
+    "vendor-bin/phpstan/composer.json",
+    "vendor-bin/phpstan/composer.lock",
+    "vendor-bin/php-cs-fixer/composer.json",
+    "vendor-bin/php-cs-fixer/composer.lock"
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 LibreCode coop and contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"

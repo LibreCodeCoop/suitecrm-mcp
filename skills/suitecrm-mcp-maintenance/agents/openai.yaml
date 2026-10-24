@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+interface:
+  display_name: "SuiteCRM MCP Maintenance"
+  short_description: "PHP, OAuth, tests, quality and security"
+  default_prompt: "Inspect and maintain the SuiteCRM MCP according to the current project engineering and security instructions."

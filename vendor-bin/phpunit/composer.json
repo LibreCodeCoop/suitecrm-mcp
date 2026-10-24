@@ -1,0 +1,9 @@
+{
+    "name": "suitecrm-mcp/phpunit-tools",
+    "description": "Isolated PHPUnit test runner",
+    "type": "project",
+    "license": "AGPL-3.0-or-later",
+    "require-dev": {
+        "phpunit/phpunit": "^13.4"
+    }
+}

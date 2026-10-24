@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: Actionlint
+on: [push, pull_request]
+permissions:
+  contents: read
+concurrency:
+  group: actionlint-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  actionlint:
+    name: Workflow syntax and expressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Actionlint
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color

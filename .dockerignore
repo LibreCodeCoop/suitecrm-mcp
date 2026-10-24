@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Production image must never receive secrets or data
+.env
+.env.*
+!.env.example
+secrets
+var
+state
+reports
+vendor
+.build
+.venv
+dist
+.git
+.gitignore
+__pycache__
+*.log
+*.sqlite3
+*.pem
+*.key

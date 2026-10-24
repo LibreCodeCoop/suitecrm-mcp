@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+interface:
+  display_name: "SuiteCRM Change Approval"
+  short_description: "Review proposals with independent manager authorization"
+  default_prompt: "Prepare and review a single SuiteCRM change proposal without executing it. Explain which separate approval is required."

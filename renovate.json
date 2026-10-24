@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "dockerfile",
+    "docker-compose"
+  ],
+  "dependencyDashboard": false,
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "nginx"
+      ],
+      "allowedVersions": "/^1\\.(?:[02468]|[1-9][0-9]*[02468])\\.[0-9]+-alpine3\\.[0-9]+$/"
+    },
+    {
+      "matchPackageNames": [
+        "php"
+      ],
+      "allowedVersions": "/^8\\.5\\.[0-9]+-fpm-alpine3\\.24$/"
+    }
+  ],
+  "docker-compose": {
+    "includePaths": [
+      "docker-compose.yml"
+    ]
+  },
+  "automerge": false
+}

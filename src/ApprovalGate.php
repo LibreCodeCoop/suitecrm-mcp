@@ -1,0 +1,263 @@
+<?php
+
+// SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+declare(strict_types=1);
+
+namespace SuiteCrmMcp;
+
+use InvalidArgumentException;
+use PDO;
+use RuntimeException;
+
+final class ApprovalGate
+{
+    private PDO $db;
+
+    public function __construct(
+        private readonly Config $config,
+        private readonly CrmGateway $crm,
+    ) {
+        $file = $config->dataDir.'/approvals.sqlite3';
+        $this->db = new PDO('sqlite:'.$file, options: [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+        @chmod($file, 0600);
+        $this->db->exec('PRAGMA busy_timeout=3000');
+        $this->db->exec('CREATE TABLE IF NOT EXISTS plans (
+            id TEXT PRIMARY KEY,
+            actor TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            digest TEXT NOT NULL,
+            state TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )');
+    }
+
+    public static function canonical(array $plan): string
+    {
+        self::deepSort($plan);
+        return (string) json_encode($plan, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    private static function deepSort(array &$value): void
+    {
+        if (array_is_list($value)) {
+            foreach ($value as &$item) {
+                if (is_array($item)) {
+                    self::deepSort($item);
+                }
+            }
+            return;
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as &$item) {
+            if (is_array($item)) {
+                self::deepSort($item);
+            }
+        }
+    }
+
+    private function encrypt(string $raw): string
+    {
+        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        return base64_encode($nonce.sodium_crypto_secretbox($raw, $nonce, $this->config->encryptionKey));
+    }
+
+    private function decrypt(string $encoded): string
+    {
+        $data = base64_decode($encoded, true);
+        if (!is_string($data) || strlen($data) < SODIUM_CRYPTO_SECRETBOX_NONCEBYTES + 16) {
+            throw new RuntimeException('Corrupted encrypted proposal');
+        }
+        $raw = sodium_crypto_secretbox_open(
+            substr($data, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES),
+            substr($data, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES),
+            $this->config->encryptionKey
+        );
+        if (!is_string($raw)) {
+            throw new RuntimeException('Cannot decrypt proposal');
+        }
+        return $raw;
+    }
+
+    public function prepare(
+        string $actor,
+        string $operation,
+        string $module,
+        ?string $recordId,
+        array $changes,
+        string $reason
+    ): array {
+        TokenVault::subject($actor);
+        $changes = Policy::changes($module, $changes, $operation);
+        if (strlen($reason) < 8 || strlen($reason) > 500) {
+            throw new InvalidArgumentException('Reason must have 8 to 500 characters');
+        }
+        $before = [];
+        $oldVersion = null;
+        if ($operation === 'update') {
+            $id = Policy::recordId($recordId ?? '');
+            $original = $this->crm->getRawForDiff($actor, $module, $id, array_merge(array_keys($changes), ['date_modified']));
+            $before = Policy::project($original['attributes'], array_keys($changes));
+            $oldVersion = $original['attributes']['date_modified'] ?? null;
+            if (!is_string($oldVersion) || count($before) !== count($changes)) {
+                throw new RuntimeException('Current values/version unavailable; cannot approve an update');
+            }
+            if ($before === $changes) {
+                throw new InvalidArgumentException('No differences to approve');
+            }
+            $recordId = $id;
+        } else {
+            if ($recordId !== null) {
+                throw new InvalidArgumentException('Creation cannot specify record ID');
+            }
+        }
+        $now = time();
+        $plan = [
+            'id' => self::uuid(),
+            'actor_sub' => $actor,
+            'operation' => $operation,
+            'module' => $module,
+            'record_id' => $recordId,
+            'before' => $before,
+            'after' => $changes,
+            'date_modified_before' => $oldVersion,
+            'reason' => $reason,
+            'created_at' => $now,
+            'expires_at' => $now + 900,
+        ];
+        $canonical = self::canonical($plan);
+        $hash = hash('sha256', $canonical);
+        $stmt = $this->db->prepare('INSERT INTO plans(id,actor,payload,digest,state,expires_at,created_at)
+            VALUES(?,?,?,?,?,?,?)');
+        $stmt->execute([$plan['id'], $actor, $this->encrypt($canonical),
+                        $hash, 'pending', $plan['expires_at'], $now]);
+        return [
+            'proposal' => $plan,
+            'digest' => $hash,
+            'status' => 'pending',
+            'approval_message' => self::approvalMessage($plan, $hash),
+            'warning' => 'No SuiteCRM modification. Only an independent explicit signed approval may authorize one execution.',
+        ];
+    }
+
+    public static function approvalMessage(array $plan, string $hash): string
+    {
+        return "SUITECRM_MCP_APPROVAL_V1\n".
+            $plan['id']."\n".$plan['actor_sub']."\n".$hash."\n".
+            $plan['expires_at']."\n";
+    }
+
+    private static function uuid(): string
+    {
+        $hex = bin2hex(random_bytes(16));
+        return substr($hex, 0, 8).'-'.substr($hex, 8, 4).'-4'.
+            substr($hex, 13, 3).'-a'.substr($hex, 17, 3).'-'.substr($hex, 20);
+    }
+
+    public function status(string $actor, string $proposalId): array
+    {
+        TokenVault::subject($actor);
+        $id = Policy::recordId($proposalId);
+        $stmt = $this->db->prepare('SELECT payload,digest,state,expires_at FROM plans WHERE id=? AND actor=?');
+        $stmt->execute([$id, $actor]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            throw new RuntimeException('Proposal does not belong to this user');
+        }
+        $plan = json_decode($this->decrypt($row['payload']), true, 64, JSON_THROW_ON_ERROR);
+        return [
+            'proposal' => $plan,
+            'digest' => $row['digest'],
+            'status' => $row['state'] === 'pending' && time() >= (int)$row['expires_at']
+                ? 'expired' : $row['state'],
+            'approval_message' => self::approvalMessage($plan, $row['digest']),
+        ];
+    }
+
+    public function apply(string $actor, string $proposalId, string $signature): array
+    {
+        if (!$this->config->allowWrites || !$this->config->workflowsReviewed) {
+            throw new RuntimeException('Writes are disabled by server policy');
+        }
+        $pub = $this->config->approverPublicKey;
+        if (!is_string($pub)) {
+            throw new RuntimeException('No human approver public key configured');
+        }
+        $view = $this->status($actor, $proposalId);
+        if ($view['status'] !== 'pending') {
+            throw new RuntimeException('Proposal is no longer pending');
+        }
+        $plan = $view['proposal'];
+        if (!in_array($plan['operation'] ?? null, ['create','update'], true)) {
+            throw new RuntimeException('Only individual record changes may be applied');
+        }
+        $proof = base64_decode($signature, true);
+        if (!is_string($proof) || strlen($proof) !== SODIUM_CRYPTO_SIGN_BYTES
+            || !sodium_crypto_sign_verify_detached($proof, $view['approval_message'], $pub)) {
+            throw new RuntimeException('No valid independent human approval for this exact change');
+        }
+        // Atomic claim across workers prevents replay / duplicate execution.
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare('UPDATE plans SET state=? WHERE id=? AND actor=? AND state=? AND digest=? AND expires_at>?');
+            $stmt->execute(['executing', $proposalId, $actor, 'pending', $view['digest'], time()]);
+            if ($stmt->rowCount() !== 1) {
+                $this->db->rollBack();
+                throw new RuntimeException('Proposal was already claimed or expired');
+            }
+            $this->db->commit();
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
+        }
+        if ($plan['operation'] === 'update') {
+            try {
+                $latest = $this->crm->getRawForDiff(
+                    $actor,
+                    $plan['module'],
+                    $plan['record_id'],
+                    array_merge(array_keys($plan['after']), ['date_modified'])
+                );
+                $attrs = $latest['attributes'];
+                $prior = Policy::project($attrs, array_keys($plan['after']));
+                if ($prior !== $plan['before'] ||
+                    ($attrs['date_modified'] ?? null) !== $plan['date_modified_before']) {
+                    $this->finish($plan['id'], 'stale');
+                    throw new RuntimeException('Record changed after human approval; prepare a new proposal');
+                }
+            } catch (\Throwable $error) {
+                $this->finish($plan['id'], 'stale');
+                throw new RuntimeException('Record revalidation failed; human review required');
+            }
+        }
+        try {
+            $result = $this->crm->writeApproved(
+                $actor,
+                $plan['operation'],
+                $plan['module'],
+                $plan['after'],
+                $plan['record_id']
+            );
+            $this->finish($plan['id'], 'applied');
+            return ['status' => 'applied', 'proposal_id' => $plan['id'],
+                    'record_id' => $result['record_id'], 'actor_sub' => $actor];
+        } catch (\Throwable) {
+            // Maybe the remote operation completed before transport failure;
+            // never blindly retry an uncertain write.
+            $this->finish($plan['id'], 'uncertain');
+            throw new RuntimeException('Write outcome uncertain: manual CRM verification required; do not retry');
+        }
+    }
+
+    private function finish(string $id, string $state): void
+    {
+        $stmt = $this->db->prepare('UPDATE plans SET state=? WHERE id=?');
+        $stmt->execute([$state, $id]);
+    }
+}

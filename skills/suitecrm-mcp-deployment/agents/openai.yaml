@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+interface:
+  display_name: "SuiteCRM MCP Deployment"
+  short_description: "Secure Docker, OAuth, and tunnel deployment"
+  default_prompt: "Review the SuiteCRM MCP Docker deployment, preserving encrypted state and credentials, and keep commercial writes disabled."

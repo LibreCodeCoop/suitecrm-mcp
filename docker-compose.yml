@@ -1,0 +1,136 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+services:
+  app:
+    build: .
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      SUITECRM_BASE_URL: ${SUITECRM_BASE_URL:?Set SUITECRM_BASE_URL in .env.deploy}
+      SUITECRM_AUTH_CLIENT_ID: ${SUITECRM_AUTH_CLIENT_ID:-}
+      SUITECRM_AUTH_CLIENT_SECRET_FILE: /run/secrets/suitecrm_auth_client_secret
+      MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:?Set MCP_OAUTH_ISSUER in .env.deploy}
+      MCP_OAUTH_CLIENT_ID: ${MCP_OAUTH_CLIENT_ID:-}
+      MCP_OAUTH_REDIRECT_URI: ${MCP_OAUTH_REDIRECT_URI:-}
+      MCP_RESOURCE_URI: ${MCP_RESOURCE_URI:?Set MCP_RESOURCE_URI in .env.deploy}
+      OPENAI_TUNNEL_ID: ${OPENAI_TUNNEL_ID:-}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-127.0.0.1,localhost,nginx}
+      MCP_ALLOW_WRITES: "false"
+      MCP_WORKFLOWS_REVIEWED: "false"
+      MCP_APPROVER_PUBLIC_KEY_FILE: /run/secrets/approver_public_key
+      MCP_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/token_encryption_key
+      MCP_DATA_DIR: /app/var
+    secrets:
+      - token_encryption_key
+      - approver_public_key
+      - suitecrm_auth_client_secret
+    volumes:
+      - ./var:/app/var
+    networks:
+      - mcp_backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+
+  # Never bind this internal MCP/nginx listener to a host port.
+  nginx:
+    image: nginx:1.30.6-alpine3.24@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
+    user: "101:101"
+    restart: unless-stopped
+    depends_on: [app]
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - mcp_backend
+    read_only: true
+    tmpfs:
+      - /var/run:rw,nosuid,mode=1777,size=2m
+      - /var/cache/nginx:rw,nosuid,mode=1777,size=16m
+      - /tmp:rw,noexec,nosuid,size=8m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+
+  # This is a *separate* tiny browser-only OAuth edge. Never proxy /mcp or /oauth/token.
+  # No published host ports. The reverse proxy on your host uses a dedicated DNS
+  # alias inside the already-existing external Docker network reverse-proxy.
+  oauth-edge:
+    profiles: ["oauth-edge"]
+    image: nginx:1.30.6-alpine3.24@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
+    user: "101:101"
+    restart: unless-stopped
+    depends_on: [app]
+    volumes:
+      - ./docker/nginx/oauth-edge.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      mcp_backend:
+      proxy_front:
+        aliases: ["${MCP_OAUTH_EDGE_ALIAS:-suitecrm-mcp-oauth-edge}"]
+    read_only: true
+    tmpfs:
+      - /var/run:rw,nosuid,mode=1777,size=2m
+      - /var/cache/nginx:rw,nosuid,mode=1777,size=16m
+      - /tmp:rw,noexec,nosuid,size=8m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+
+  # Shares nginx's network namespace deliberately:
+  # http://127.0.0.1:8080 is reachable only from the private Docker boundary.
+  # Enables Harpoon OAuth token shim without publishing the /oauth/token endpoint.
+  tunnel:
+    profiles: ["chatgpt"]
+    # Run as the file owner of the 0600 runtime API key, never broaden secret permissions.
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    image: ghcr.io/openai/tunnel-client:0.0.18@sha256:486321616c197fed2d3fbe7d44f22433ce9a1e6c1ee434c0d6652868a5fda5c1
+    restart: unless-stopped
+    depends_on: [nginx]
+    network_mode: "service:nginx"
+    command:
+      - --control-plane.api-key=file:/run/secrets/openai_tunnel_runtime_api_key
+    environment:
+      CONTROL_PLANE_TUNNEL_ID: ${OPENAI_TUNNEL_ID:-}
+      MCP_SERVER_URL: http://127.0.0.1:8080/mcp
+      # Exact OAuth discovery origins only. The canonical resource is hosted
+      # by OpenAI while the authorization server is our existing SuiteCRM host.
+      MCP_OAUTH_TRUSTED_ORIGINS: |-
+        ${MCP_OAUTH_ORIGIN:?Set MCP_OAUTH_ORIGIN to the HTTPS origin of your SuiteCRM host}
+        https://api.openai.com
+      HARPOON_ALLOW_PLAINTEXT_HTTP: "true"
+      HEALTH_LISTEN_ADDR: 127.0.0.1:18080
+      CONTROL_PLANE_MAX_INFLIGHT_REQUESTS: "1"
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    secrets:
+      - openai_tunnel_runtime_api_key
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+
+secrets:
+  token_encryption_key:
+    file: ./secrets/token_encryption_key
+  approver_public_key:
+    file: ./secrets/approver_public_key
+  openai_tunnel_runtime_api_key:
+    file: ./secrets/openai_tunnel_runtime_api_key
+  suitecrm_auth_client_secret:
+    file: ./secrets/suitecrm_auth_client_secret
+
+networks:
+  mcp_backend:
+    driver: bridge
+
+  # Reuse an existing infrastructure network; do not publish additional ports.
+  # The synthetic smoke test provisions a uniquely named disposable network.
+  proxy_front:
+    external: true
+    name: ${MCP_PROXY_NETWORK:-reverse-proxy}

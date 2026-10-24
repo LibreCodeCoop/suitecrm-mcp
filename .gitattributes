@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: CC0-1.0
+* text=auto
+*.php text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+vendor-bin/**/composer.lock text eol=lf

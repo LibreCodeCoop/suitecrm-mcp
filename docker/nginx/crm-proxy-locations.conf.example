@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SuiteCRM MCP Server OAuth: nginx-proxy vhost.d/crm.example.com
+#
+# Include from HTTPS virtual host only. Keep nginx-proxy's normal SuiteCRM
+# location untouched. Only these four OAuth URLs may reach oauth-edge.
+# Do not forward /mcp or generic /oauth/token.
+#
+# nginx-proxy is in the reverse-proxy Docker network. The backend DNS alias
+# exists only when oauth-edge is running on that same external network.
+# Runtime DNS lookups prevent nginx-proxy startup from depending on MCP uptime.
+#
+# oauth-edge itself has no published host port.
+location = /.well-known/oauth-authorization-server/suitecrm-mcp-auth {
+    access_log off;
+    limit_except GET { deny all; }
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $librecode_mcp_oauth_upstream "http://suitecrm-mcp-oauth-edge:8081";
+    proxy_pass $librecode_mcp_oauth_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host crm.example.com;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 4s;
+    proxy_read_timeout 15s;
+    proxy_redirect off;
+}
+
+location = /suitecrm-mcp-auth/authorize {
+    access_log off;
+    limit_except GET { deny all; }
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $librecode_mcp_oauth_upstream "http://suitecrm-mcp-oauth-edge:8081";
+    proxy_pass $librecode_mcp_oauth_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host crm.example.com;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 4s;
+    proxy_read_timeout 15s;
+    proxy_redirect off;
+}
+
+location = /suitecrm-mcp-auth/callback {
+    # Authorization codes can occur in the callback query: never log URI.
+    access_log off;
+    limit_except GET { deny all; }
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $librecode_mcp_oauth_upstream "http://suitecrm-mcp-oauth-edge:8081";
+    proxy_pass $librecode_mcp_oauth_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host crm.example.com;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 4s;
+    proxy_read_timeout 15s;
+    proxy_redirect off;
+}
+
+# Public standards-based OAuth token exchange, NOT a public MCP endpoint.
+# Required by the ChatGPT native custom-MCP registration UI. PKCE is mandatory.
+location = /suitecrm-mcp-auth/token {
+    access_log off;
+    limit_except POST { deny all; }
+    client_max_body_size 8k;
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $librecode_mcp_oauth_upstream "http://suitecrm-mcp-oauth-edge:8081";
+    proxy_pass $librecode_mcp_oauth_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host crm.example.com;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 4s;
+    proxy_read_timeout 15s;
+    proxy_redirect off;
+}
