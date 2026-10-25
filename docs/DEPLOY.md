@@ -85,6 +85,33 @@ a real personal `crm_whoami` and minimally scoped read-only record lookups.
 Confirm commercial write flags remain `false`. No production writes are needed
 for verification.
 
+### Replacing the private nginx or updating the tunnel
+
+The tunnel must never share nginx's container network namespace. Instead, both
+join an internal `mcp_transport` network, while the tunnel uses a separate
+`tunnel_egress` bridge for outbound HTTPS. The nginx container can be replaced
+without restarting the tunnel; its private DNS name remains `nginx`. Neither
+network publishes MCP or the generic internal OAuth token endpoint to the host.
+
+When migrating from an older `network_mode: service:nginx` deployment, run the
+reviewed Compose file with the existing `.env.deploy` and secrets:
+
+```sh
+docker compose --profile chatgpt --profile oauth-edge \
+  --env-file .env.deploy config --quiet
+# Stop the old namespace-sharing tunnel before replacing its nginx host.
+docker compose --profile chatgpt --profile oauth-edge \
+  --env-file .env.deploy stop tunnel
+docker compose --profile chatgpt --profile oauth-edge \
+  --env-file .env.deploy up -d --no-deps nginx tunnel
+```
+
+Check that nginx and the tunnel are running and that a personally authenticated
+`crm_whoami` succeeds. Subsequent nginx container replacements no longer
+require manually recreating the tunnel. Keep the separate OAuth edge untouched
+unless its configuration changes. Do not use `docker compose down` during this
+migration: it would interrupt unrelated services and may remove networks.
+
 For a prior deployment, preserve `MCP_OAUTH_ISSUER` and the DNS alias from the
 existing installation; do not modify the reverse proxy callback paths unless
 a coordinated OAuth migration is planned.
