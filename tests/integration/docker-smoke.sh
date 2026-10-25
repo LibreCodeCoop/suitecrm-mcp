@@ -9,10 +9,12 @@ mkdir -p .build
 SMOKE_DIR=$(mktemp -d "$PWD/.build/smoke.XXXXXX")
 export SMOKE_DIR
 PROJECT="suitecrm-mcp-smoke-$$"
+PROBE_CONTAINER="${PROJECT}-transport-probe"
 export MCP_PROXY_NETWORK="${PROJECT}-proxy"
 docker network create "$MCP_PROXY_NETWORK" >/dev/null
 cleanup() {
-  docker compose -p "$PROJECT" --profile oauth-edge \
+  docker rm -f "$PROBE_CONTAINER" >/dev/null 2>&1 || true
+  docker compose -p "$PROJECT" --profile oauth-edge --profile chatgpt \
     -f docker-compose.yml -f "$SMOKE_DIR/compose.override.yml" \
     --env-file "$SMOKE_DIR/env" down >/dev/null 2>&1 || true
   docker network rm "$MCP_PROXY_NETWORK" >/dev/null 2>&1 || true
@@ -64,7 +66,7 @@ secrets:
     file: ${SMOKE_DIR}/secrets/openai_tunnel_runtime_api_key
 EOF
 compose() {
-  docker compose -p "$PROJECT" --profile oauth-edge \
+  docker compose -p "$PROJECT" --profile oauth-edge --profile chatgpt \
     -f docker-compose.yml -f "$SMOKE_DIR/compose.override.yml" \
     --env-file "$SMOKE_DIR/env" "$@"
 }
@@ -74,11 +76,19 @@ compose config --format json | python3 -c '
 import json, os, sys
 config = json.load(sys.stdin)
 root = os.environ["SMOKE_DIR"]
-for name in ("app", "nginx"):
+for name in ("app", "nginx", "tunnel"):
     assert not config["services"][name].get("ports"), "Private server published a host port"
 assert not config["services"]["oauth-edge"].get("ports"), "OAuth edge published a host port"
 edge_networks = config["services"]["oauth-edge"]["networks"]
-assert "proxy_front" in edge_networks and "mcp_backend" in edge_networks
+assert set(edge_networks) == {"mcp_backend", "proxy_front"}
+assert set(config["services"]["app"]["networks"]) == {"mcp_backend"}
+assert set(config["services"]["nginx"]["networks"]) == {"mcp_backend", "mcp_transport"}
+tunnel = config["services"]["tunnel"]
+assert "network_mode" not in tunnel, "Tunnel must not share a service network namespace"
+assert set(tunnel["networks"]) == {"mcp_transport", "tunnel_egress"}
+assert tunnel["environment"]["MCP_SERVER_URL"] == "http://nginx:8080/mcp"
+assert config["networks"]["mcp_transport"]["internal"] is True
+assert not config["networks"]["tunnel_egress"].get("internal", False)
 assert config["networks"]["proxy_front"]["name"] == os.environ["MCP_PROXY_NETWORK"]
 volumes = config["services"]["app"]["volumes"]
 assert any(v.get("target") == "/app/var" and v.get("source") == root+"/var" for v in volumes)
@@ -87,6 +97,24 @@ for name in ("token_encryption_key", "approver_public_key", "suitecrm_auth_clien
     assert secret.get("file") == root+"/secrets/"+name
 '
 compose up -d --build app nginx oauth-edge >/dev/null
+# Run a synthetic transport-only client; never start the real tunnel with CI credentials.
+nginx_id_before=$(compose ps -q nginx)
+nginx_image=$(docker inspect --format '{{.Config.Image}}' "$nginx_id_before")
+docker run -d --name "$PROBE_CONTAINER" --network "${PROJECT}_mcp_transport" \
+  --user "${SMOKE_UID}:${SMOKE_GID}" --cap-drop ALL --security-opt no-new-privileges \
+  --read-only --entrypoint /bin/sh "$nginx_image" -c 'sleep 240' >/dev/null
+probe_health=$(docker exec "$PROBE_CONTAINER" wget -T 10 -t 1 -q -O - http://nginx:8080/healthz)
+[[ "$probe_health" == *'"status":"alive"'* ]]
+if docker exec "$PROBE_CONTAINER" nslookup app >/dev/null 2>&1; then
+  echo "Transport client must not resolve the application network" >&2
+  exit 1
+fi
+# Force an nginx replacement while the same synthetic client is running.
+compose up -d --no-deps --force-recreate nginx >/dev/null
+[[ "$nginx_id_before" != "$(compose ps -q nginx)" ]]
+[[ "$(docker inspect --format '{{.State.Running}}' "$PROBE_CONTAINER")" == true ]]
+probe_health=$(docker exec "$PROBE_CONTAINER" wget -T 10 -t 1 -q -O - http://nginx:8080/healthz)
+[[ "$probe_health" == *'"status":"alive"'* ]]
 health=$(compose exec -T nginx wget -T 10 -t 1 -q -O - http://127.0.0.1:8080/healthz)
 [[ "$health" == *'"status":"alive"'* ]]
 prmd=$(compose exec -T nginx wget -T 10 -t 1 -q -O - http://127.0.0.1:8080/.well-known/oauth-protected-resource/mcp)
@@ -127,4 +155,4 @@ private_token_public=$(compose exec -T oauth-edge wget -T 10 -t 1 -S \
 bad_token=$(compose exec -T nginx wget -T 10 -t 1 -S -O /dev/null \
     --post-data='grant_type=refresh_token' http://127.0.0.1:8080/oauth/token 2>&1 || true)
 [[ "$bad_token" == *'400 Bad Request'* ]]
-echo "smoke=passed; isolated_synthetic_data=true; public_mcp=false; oauth_token_post_only=true; generic_token_private=true"
+echo "smoke=passed; isolated_synthetic_data=true; public_mcp=false; oauth_token_post_only=true; generic_token_private=true; nginx_replacement_safe=true"

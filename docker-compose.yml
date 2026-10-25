@@ -47,6 +47,7 @@ services:
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - mcp_backend
+      - mcp_transport
     read_only: true
     tmpfs:
       - /var/run:rw,nosuid,mode=1777,size=2m
@@ -80,9 +81,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     pids_limit: 64
 
-  # Shares nginx's network namespace deliberately:
-  # http://127.0.0.1:8080 is reachable only from the private Docker boundary.
-  # Enables Harpoon OAuth token shim without publishing the /oauth/token endpoint.
+  # The tunnel uses a private transport network instead of nginx's namespace:
+  # replacing nginx must not invalidate the tunnel container's network namespace.
+  # An independent egress network permits outbound TLS without exposing /mcp
+  # or the internal Harpoon /oauth/token shim on any host port.
   tunnel:
     profiles: ["chatgpt"]
     # Run as the file owner of the 0600 runtime API key, never broaden secret permissions.
@@ -90,12 +92,14 @@ services:
     image: ghcr.io/openai/tunnel-client:0.0.18@sha256:486321616c197fed2d3fbe7d44f22433ce9a1e6c1ee434c0d6652868a5fda5c1
     restart: unless-stopped
     depends_on: [nginx]
-    network_mode: "service:nginx"
+    networks:
+      - mcp_transport
+      - tunnel_egress
     command:
       - --control-plane.api-key=file:/run/secrets/openai_tunnel_runtime_api_key
     environment:
       CONTROL_PLANE_TUNNEL_ID: ${OPENAI_TUNNEL_ID:-}
-      MCP_SERVER_URL: http://127.0.0.1:8080/mcp
+      MCP_SERVER_URL: http://nginx:8080/mcp
       # Exact OAuth discovery origins only. The canonical resource is hosted
       # by OpenAI while the authorization server is our existing SuiteCRM host.
       MCP_OAUTH_TRUSTED_ORIGINS: |-
@@ -127,6 +131,16 @@ secrets:
 
 networks:
   mcp_backend:
+    driver: bridge
+
+  # Only nginx and the tunnel join this network; there is no route to the
+  # application network or to the host, and no externally published listener.
+  mcp_transport:
+    driver: bridge
+    internal: true
+
+  # The tunnel needs outbound TLS; keep this separate from application traffic.
+  tunnel_egress:
     driver: bridge
 
   # Reuse an existing infrastructure network; do not publish additional ports.

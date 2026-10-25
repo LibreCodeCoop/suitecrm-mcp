@@ -29,6 +29,15 @@ host port. An existing HTTPS SuiteCRM domain hosts the configurable OAuth
 issuer route. The broker verifies personal SuiteCRM credentials; MCP data
 access is restricted by the authenticated account and module/field policy.
 
+The tunnel and private nginx communicate through the dedicated internal
+`mcp_transport` Docker network (`http://nginx:8080/mcp`). The tunnel's separate
+`tunnel_egress` bridge supplies outbound TLS. Only nginx belongs to both
+`mcp_transport` and the PHP application's `mcp_backend` network: the tunnel
+cannot contact PHP-FPM directly, and neither `/mcp` nor `/oauth/token` is
+published on the host. Recreating nginx therefore does not invalidate the
+tunnel's own network namespace; Docker service discovery resolves the new
+nginx container address.
+
 The application has two OAuth layers and requires no separate SSO provider.
 
 1. An MCP OAuth authorization server issues short-lived, signed, audience-bound
