@@ -165,6 +165,50 @@ final class SecurityTest extends TestCase
         }
     }
 
+    public function testInteractiveConfirmationIsExactActorBoundAndOneTime(): void
+    {
+        $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
+        $proposal = $this->prepare($gate);
+        $id = $proposal['proposal']['id'];
+        $confirmation = 'CONFIRM '.$id.' '.$proposal['digest'];
+        try {
+            $gate->applyConfirmed('member-01', $id, 'CONFIRM '.$id.' invalid');
+            self::fail('Wrong confirmation accepted');
+        } catch (RuntimeException $expected) {
+            self::assertSame([], $this->crm->calls);
+        }
+        try {
+            $gate->applyConfirmed('member-02', $id, $confirmation);
+            self::fail('Cross-user approval accepted');
+        } catch (RuntimeException $expected) {
+            self::assertSame([], $this->crm->calls);
+        }
+        self::assertSame('applied', $gate->applyConfirmed('member-01', $id, $confirmation)['status']);
+        self::assertCount(1, $this->crm->calls);
+        $this->expectException(RuntimeException::class);
+        try {
+            $gate->applyConfirmed('member-01', $id, $confirmation);
+        } finally {
+            self::assertCount(1, $this->crm->calls);
+        }
+    }
+
+    public function testInteractiveConfirmationRespectsDisabledWriteGates(): void
+    {
+        $gate = new ApprovalGate($this->config, $this->crm);
+        $proposal = $this->prepare($gate);
+        $this->expectException(RuntimeException::class);
+        try {
+            $gate->applyConfirmed(
+                'member-01',
+                $proposal['proposal']['id'],
+                'CONFIRM '.$proposal['proposal']['id'].' '.$proposal['digest']
+            );
+        } finally {
+            self::assertSame([], $this->crm->calls);
+        }
+    }
+
     public function testWrongSignatureCannotTriggerWrite(): void
     {
         $gate = new ApprovalGate($this->enabledConfig(), $this->crm);

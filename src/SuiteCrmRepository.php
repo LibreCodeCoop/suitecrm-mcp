@@ -90,8 +90,8 @@ final class SuiteCrmRepository implements CrmGateway
         int $pageSize = 10
     ): array {
         Policy::module($module);
-        if ($page < 1 || $page > 5 || $pageSize < 1 || $pageSize > 20) {
-            throw new \InvalidArgumentException('Pagination must be between 1-5 and 1-20');
+        if ($page < 1 || $page > 1000 || $pageSize < 1 || $pageSize > 20) {
+            throw new \InvalidArgumentException('Pagination must be between 1-1000 and 1-20');
         }
         $selected = Policy::fields($module, $fields);
         $records = $this->http->request(

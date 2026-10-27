@@ -129,6 +129,19 @@ final class Tools
         ];
     }
 
+    /** Execute an exact proposal after an explicit interactive tool confirmation. */
+    public function crmApplyConfirmedChange(
+        RequestContext $context,
+        string $proposalId,
+        string $confirmation
+    ): array {
+        return $this->approvals->applyConfirmed(
+            $this->subject($context),
+            $proposalId,
+            $confirmation
+        );
+    }
+
     /** Execute one independently signed human-approved change; disabled in Compose. */
     public function crmApplyApprovedChange(
         RequestContext $context,

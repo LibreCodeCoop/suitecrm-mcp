@@ -98,6 +98,12 @@ final class McpServerFactory
         // are explicitly enabled. The approval gate independently rechecks them.
         if ($allowWrites) {
             $builder->addTool(
+                [$tools, 'crmApplyConfirmedChange'],
+                'crm_apply_confirmed_change',
+                description: 'Execute one exact, unexpired proposal only after explicit user confirmation. Destructive, not safe for autonomous execution.',
+                annotations: $write
+            );
+            $builder->addTool(
                 [$tools, 'crmApplyApprovedChange'],
                 'crm_apply_approved_change',
                 description: 'Only execute after external manager signature and server gates',

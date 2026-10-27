@@ -178,6 +178,19 @@ final class ApprovalGate
         ];
     }
 
+    /** One-time interactive confirmation without a separate signing service.
+     * The MCP host must request explicit user approval for this destructive tool.
+     */
+    public function applyConfirmed(string $actor, string $proposalId, string $confirmation): array
+    {
+        $view = $this->status($actor, $proposalId);
+        $expected = 'CONFIRM '.$view['proposal']['id'].' '.$view['digest'];
+        if (!hash_equals($expected, $confirmation)) {
+            throw new RuntimeException('Exact proposal confirmation required');
+        }
+        return $this->execute($actor, $proposalId, $view);
+    }
+
     public function apply(string $actor, string $proposalId, string $signature): array
     {
         if (!$this->config->allowWrites || !$this->config->workflowsReviewed) {
@@ -200,6 +213,19 @@ final class ApprovalGate
             || !sodium_crypto_sign_verify_detached($proof, $view['approval_message'], $pub)) {
             throw new RuntimeException('No valid independent human approval for this exact change');
         }
+        return $this->execute($actor, $proposalId, $view);
+    }
+
+    /** All authorization paths share the same atomic claim and stale-state guard. */
+    private function execute(string $actor, string $proposalId, array $view): array
+    {
+        if (!$this->config->allowWrites || !$this->config->workflowsReviewed) {
+            throw new RuntimeException('Writes are disabled by server policy');
+        }
+        if ($view['status'] !== 'pending') {
+            throw new RuntimeException('Proposal is no longer pending');
+        }
+        $plan = $view['proposal'];
         // Atomic claim across workers prevents replay / duplicate execution.
         $this->db->beginTransaction();
         try {
