@@ -12,7 +12,7 @@ Bring customer information into the conversations where your team works. SuiteCR
 
 - **Customer context on demand.** Look up accounts, opportunities, and other permitted SuiteCRM records from a conversation instead of switching between applications.
 - **Access that follows the user.** Each person signs in with their own SuiteCRM account; the integration respects individual CRM permissions rather than relying on a shared administrator.
-- **Proposals before changes.** Prepare CRM updates for human review. Execution of commercial changes is disabled by default.
+- **Proposals before changes.** Prepare CRM updates for human review. Execution of commercial changes is disabled by default. When explicitly enabled, changes require a separate SuiteCRM browser sign-in and human review of each exact proposal.
 - **Deployment under your control.** Keep your existing SuiteCRM installation and connect through a private MCP tunnel, without publishing the MCP endpoint on the internet.
 
 This makes the project relevant to sales and account teams looking for faster access to customer context, operations teams evaluating assisted workflows, and IT teams integrating conversational AI with an existing open-source CRM.

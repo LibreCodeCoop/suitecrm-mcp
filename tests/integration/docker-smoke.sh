@@ -142,6 +142,16 @@ public_token_bad=$(compose exec -T oauth-edge wget -T 10 -t 1 -S \
 # the internal /oauth/token endpoint even if the HTTP method is valid.
 internal_post_public=$(compose exec -T oauth-edge wget -T 10 -t 1 -S     --header='Host: crm.example.com'     --post-data='grant_type=refresh_token' -O /dev/null     http://127.0.0.1:8081/oauth/token 2>&1 || true)
 [[ "$internal_post_public" == *'404 Not Found'* ]]
+# Public browser-approval path exists but fails closed while write gates are disabled.
+approval_disabled=$(compose exec -T oauth-edge wget -T 10 -t 1 -S \
+  --header='Host: crm.example.com' -O /dev/null \
+  'http://127.0.0.1:8081/suitecrm-mcp-auth/approve?proposal_id=11111111-2222-4333-a444-555555555555' 2>&1 || true)
+[[ "$approval_disabled" == *'400 Bad Request'* ]]
+# The approval form is not an arbitrary API proxy.
+approval_post_untrusted=$(compose exec -T oauth-edge wget -T 10 -t 1 -S \
+  --header='Host: crm.example.com' --post-data='csrf=untrusted' -O /dev/null \
+  'http://127.0.0.1:8081/suitecrm-mcp-auth/approve' 2>&1 || true)
+[[ "$approval_post_untrusted" == *'400 Bad Request'* ]]
 # Wrong public host must be rejected before authorization starts.
 forged_host=$(compose exec -T oauth-edge wget -T 10 -t 1 -S \
   --header='Host: attacker.example.test' -O /dev/null \

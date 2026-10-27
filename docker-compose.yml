@@ -16,8 +16,8 @@ services:
       MCP_RESOURCE_URI: ${MCP_RESOURCE_URI:?Set MCP_RESOURCE_URI in .env.deploy}
       OPENAI_TUNNEL_ID: ${OPENAI_TUNNEL_ID:-}
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-127.0.0.1,localhost,nginx}
-      MCP_ALLOW_WRITES: "false"
-      MCP_WORKFLOWS_REVIEWED: "false"
+      MCP_ALLOW_WRITES: ${MCP_ALLOW_WRITES:-false}
+      MCP_WORKFLOWS_REVIEWED: ${MCP_WORKFLOWS_REVIEWED:-false}
       MCP_APPROVER_PUBLIC_KEY_FILE: /run/secrets/approver_public_key
       MCP_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/token_encryption_key
       MCP_DATA_DIR: /app/var

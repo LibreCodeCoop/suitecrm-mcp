@@ -13,7 +13,10 @@ interface CrmGateway
     public function modules(string $subject): array;
     public function schema(string $subject, string $module): array;
     public function listRecords(string $subject, string $module, array $fields = [], int $page = 1, int $pageSize = 10): array;
+    public function searchRecords(string $subject, string $module, string $field, string $value, int $page = 1, int $pageSize = 10): array;
     public function getRecord(string $subject, string $module, string $recordId, array $fields = []): array;
+    public function getRelated(string $subject, string $module, string $recordId, string $linkField, string $relatedModule): array;
+    public function writeRelationship(string $subject, string $operation, string $module, string $recordId, string $linkField, string $relatedModule, string $relatedId): array;
     public function getRawForDiff(string $subject, string $module, string $id, array $fields): array;
     public function writeApproved(string $subject, string $method, string $module, array $attrs, ?string $id): array;
 }

@@ -30,19 +30,18 @@ explicitly reports syntax support only through PHP 8.5, and PHPStan 2 ran into
 a native parallel-worker crash on the PHP 8.6 RC image. Keep stable production
 on PHP 8.5.12 and reevaluate upstream releases after PHP 8.6 GA.
 
-## Experimental interactive confirmation (not production-ready)
+## Browser-approved SuiteCRM writes
 
-The `crm_apply_confirmed_change` tool permits a matching OAuth identity to
-consume a single unexpired proposal using `CONFIRM <proposal ID> <digest>`
-when both server write gates are enabled. It retains the atomic one-time claim,
-stale-update check, and upstream SuiteCRM ACL enforcement.
+The server supports individually prepared create/update/delete proposals for
+allowed business modules, exact-name search, and an OAuth-backed human approval
+page. The browser authenticates separately to SuiteCRM, verifies the same user
+identity, shows before/after changes and requires a CSRF-protected POST. The
+MCP executor accepts only a consumed, browser-approved proposal and the normal
+SuiteCRM user ACL. The older independent manager signature path is retained.
 
-**Security blocker:** the proposal digest is also visible to the MCP agent, so
-this confirmation cannot prove an independent human approved the execution.
-Before enabling production writes, integrate a trusted user-presence approval
-channel (for example an application-controlled approval UI authenticated as the
-actual human) and verify the approved operation server-side. Do not rely on
-model-generated confirmation strings or MCP tool annotations alone.
-
-This iteration does not implement deletion, arbitrary SuiteCRM API operations,
-or general field discovery for write schemas. Keep both write flags disabled.
+Deployment requires two explicit write switches and validated public routing
+for `/<issuer>/approve`. Both switches stay disabled until the deployment's
+SuiteCRM workflows, notification effects, and permissions are reviewed. Full
+administrative, arbitrary custom relationships and bespoke process API coverage
+remain outside this restricted CRM business-record surface and must not be advertised as
+implemented.

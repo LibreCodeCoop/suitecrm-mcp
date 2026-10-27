@@ -17,25 +17,38 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 - Offboarding blocks new OAuth logins and invalidates previous MCP JWT
   generations and refresh tokens. Also revoke upstream credentials at SuiteCRM.
 
-## No autonomous commercial operations
+## Human-controlled commercial operations
 
-Creating/updating opportunities, contacts, accounts, tasks, quotes, or notes
-may trigger SuiteCRM workflow automation or outgoing notifications. Commercial
-writes remain **disabled by default**. The execution tool is not announced
-unless both runtime gates are enabled.
+Creating, updating and deleting records may invoke SuiteCRM workflow automation,
+notification, hooks and cascades. Writes are **disabled by default** and the
+execution tools are unavailable unless both independent backend gates are
+explicitly enabled after reviewing workflow side effects.
 
-Future enablement requires all of the following:
+To approve a proposal, the user opens the exact `browser_approval_url` in a
+browser. The approval form uses a new authorization-code login against SuiteCRM
+with the deployment's registered OAuth client. The CRM user UUID must equal
+the proposal's authenticated MCP subject. The browser shows exact values,
+requires a CSRF-protected POST and consumes a short-lived one-time cookie.
+Only then can the MCP execute that approved proposal. Neither the agent nor the
+MCP token alone can authorize a browser approval. The existing independent
+manager-signature path remains compatible with prior installations.
 
-1. An independently reviewed proposal for a *single exact record operation*.
-2. A manager signature (Ed25519) produced outside the MCP application host.
-3. Verification of the actor, target, expiry, version, digest, and signature.
-4. One-time consumption preventing replay and concurrent state confusion.
-5. Separate approval of SuiteCRM workflow and notification side effects.
-6. Backend checks even if a chat message claims an operation was approved.
+All writes use a single-record proposal, a 15-minute lifetime, one-time atomic
+claim, actor binding and a final `date_modified` check for updates and deletes.
+Upstream SuiteCRM ACLs are always enforced with the user's personal token.
+Uncertain network results cannot be retried automatically. Deletion uses the
+SuiteCRM API v8 record deletion contract and must be approved separately.
 
-No tool may delete, merge, bulk-import, or change administrative CRM settings
-without a different, expressly approved design. An uncertain network result
-must not trigger an automatic write retry.
+**Note:** the earlier experimental `crm_apply_confirmed_change` method was
+removed: a confirmation string available to the agent cannot prove human
+consent. Client tool annotations are hints, not a trust boundary. An approval
+via the secured browser endpoint is required.
+
+Only explicitly allowlisted module relationships can be linked or unlinked
+through reviewed single-operation proposals. Bulk imports, merges, administrative
+changes, custom process API commands and
+email sending are not supported through this MCP without a separately reviewed
+capability and policy. Do not expose a generic unrestricted API proxy.
 
 ## Infrastructure
 

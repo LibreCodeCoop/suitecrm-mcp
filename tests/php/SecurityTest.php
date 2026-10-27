@@ -35,12 +35,33 @@ final class FakeCrm implements CrmGateway
     {
         return [];
     }
+    public function searchRecords(string $subject, string $module, string $field, string $value, int $page = 1, int $pageSize = 10): array
+    {
+        return [];
+    }
     public function getRecord(string $subject, string $module, string $recordId, array $fields = []): array
     {
         return ['id' => $recordId, 'attributes' => [
+            'name' => 'Synthetic test record',
             'next_step' => $this->nextStep,
             'date_modified' => $this->modified,
         ]];
+    }
+    public function getRelated(string $subject, string $module, string $recordId, string $linkField, string $relatedModule): array
+    {
+        return [];
+    }
+    public function writeRelationship(
+        string $subject,
+        string $operation,
+        string $module,
+        string $recordId,
+        string $linkField,
+        string $relatedModule,
+        string $relatedId
+    ): array {
+        $this->calls[] = compact('subject', 'operation', 'module', 'recordId', 'linkField', 'relatedModule', 'relatedId');
+        return ['record_id' => $recordId];
     }
     public function getRawForDiff(string $subject, string $module, string $id, array $fields): array
     {
@@ -105,7 +126,7 @@ final class SecurityTest extends TestCase
             }
         }
         $this->expectException(\InvalidArgumentException::class);
-        Policy::changes('Notes', ['description' => 'Overwrite the past'], 'update');
+        Policy::changes('Notes', ['bank_c' => 'sensitive'], 'update');
     }
 
     public function testEncryptedPerUserCredentialsAreIsolated(): void
@@ -165,45 +186,110 @@ final class SecurityTest extends TestCase
         }
     }
 
-    public function testInteractiveConfirmationIsExactActorBoundAndOneTime(): void
+    public function testBrowserApprovalCannotExecuteWithoutIndependentReview(): void
     {
         $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
         $proposal = $this->prepare($gate);
         $id = $proposal['proposal']['id'];
-        $confirmation = 'CONFIRM '.$id.' '.$proposal['digest'];
         try {
-            $gate->applyConfirmed('member-01', $id, 'CONFIRM '.$id.' invalid');
-            self::fail('Wrong confirmation accepted');
-        } catch (RuntimeException $expected) {
+            $gate->applyBrowserApproved('member-01', $id);
+            self::fail('Unapproved operation executed');
+        } catch (RuntimeException) {
             self::assertSame([], $this->crm->calls);
         }
         try {
-            $gate->applyConfirmed('member-02', $id, $confirmation);
-            self::fail('Cross-user approval accepted');
-        } catch (RuntimeException $expected) {
+            $gate->markBrowserApproved('member-02', $id);
+            self::fail('Other actor approved');
+        } catch (RuntimeException) {
             self::assertSame([], $this->crm->calls);
         }
-        self::assertSame('applied', $gate->applyConfirmed('member-01', $id, $confirmation)['status']);
+        $gate->markBrowserApproved('member-01', $id);
+        self::assertSame('approved', $gate->status('member-01', $id)['status']);
+        self::assertSame('applied', $gate->applyBrowserApproved('member-01', $id)['status']);
         self::assertCount(1, $this->crm->calls);
         $this->expectException(RuntimeException::class);
         try {
-            $gate->applyConfirmed('member-01', $id, $confirmation);
+            $gate->applyBrowserApproved('member-01', $id);
         } finally {
             self::assertCount(1, $this->crm->calls);
         }
     }
 
-    public function testInteractiveConfirmationRespectsDisabledWriteGates(): void
+    public function testDisabledGateRejectsBrowserApproval(): void
     {
         $gate = new ApprovalGate($this->config, $this->crm);
         $proposal = $this->prepare($gate);
         $this->expectException(RuntimeException::class);
-        try {
-            $gate->applyConfirmed(
+        $gate->markBrowserApproved('member-01', $proposal['proposal']['id']);
+    }
+
+    public function testDeletedRecordRequiresFreshVersionAndOneTimeApproval(): void
+    {
+        $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
+        $plan = $gate->prepare(
+            'member-01',
+            'delete',
+            'Accounts',
+            '11111111-2222-4333-a444-555555555555',
+            [],
+            'Synthetic deletion test'
+        );
+        self::assertSame('Synthetic test record', $plan['proposal']['before']['name']);
+        $gate->markBrowserApproved('member-01', $plan['proposal']['id']);
+        $result = $gate->applyBrowserApproved('member-01', $plan['proposal']['id']);
+        self::assertSame('applied', $result['status']);
+        self::assertSame('delete', $this->crm->calls[0]['method']);
+        self::assertSame([], $this->crm->calls[0]['attrs']);
+    }
+
+    public function testRelationshipLinkAndUnlinkNeedIndependentBrowserApproval(): void
+    {
+        foreach (['link', 'unlink'] as $operation) {
+            $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
+            $plan = $gate->prepareRelationship(
                 'member-01',
-                $proposal['proposal']['id'],
-                'CONFIRM '.$proposal['proposal']['id'].' '.$proposal['digest']
+                $operation,
+                'Accounts',
+                '11111111-2222-4333-a444-555555555555',
+                'contacts',
+                'Contacts',
+                'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+                'Synthetic relationship test'
             );
+            $id = $plan['proposal']['id'];
+            $gate->markBrowserApproved('member-01', $id);
+            self::assertSame('applied', $gate->applyBrowserApproved('member-01', $id)['status']);
+            self::assertSame($operation, end($this->crm->calls)['operation']);
+        }
+        $this->expectException(\InvalidArgumentException::class);
+        $gate->prepareRelationship(
+            'member-01',
+            'link',
+            'Accounts',
+            '11111111-2222-4333-a444-555555555555',
+            'arbitrary_links',
+            'Contacts',
+            'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+            'Invalid relationship test'
+        );
+    }
+
+    public function testChangedRecordInvalidatesApprovedDelete(): void
+    {
+        $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
+        $plan = $gate->prepare(
+            'member-01',
+            'delete',
+            'Accounts',
+            '11111111-2222-4333-a444-555555555555',
+            [],
+            'Synthetic deletion test'
+        );
+        $gate->markBrowserApproved('member-01', $plan['proposal']['id']);
+        $this->crm->modified = '2026-10-22T13:00:00+00:00';
+        $this->expectException(RuntimeException::class);
+        try {
+            $gate->applyBrowserApproved('member-01', $plan['proposal']['id']);
         } finally {
             self::assertSame([], $this->crm->calls);
         }

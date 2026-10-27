@@ -98,15 +98,16 @@ final class ApprovalGate
         }
         $before = [];
         $oldVersion = null;
-        if ($operation === 'update') {
+        if ($operation === 'update' || $operation === 'delete') {
             $id = Policy::recordId($recordId ?? '');
-            $original = $this->crm->getRawForDiff($actor, $module, $id, array_merge(array_keys($changes), ['date_modified']));
-            $before = Policy::project($original['attributes'], array_keys($changes));
+            $selected = $operation === 'delete' ? ['name', 'date_modified'] : array_merge(array_keys($changes), ['date_modified']);
+            $original = $this->crm->getRawForDiff($actor, $module, $id, $selected);
+            $before = Policy::project($original['attributes'], $operation === 'delete' ? $selected : array_keys($changes));
             $oldVersion = $original['attributes']['date_modified'] ?? null;
-            if (!is_string($oldVersion) || count($before) !== count($changes)) {
+            if (!is_string($oldVersion) || ($operation === 'delete' ? !isset($before['name']) : count($before) !== count($changes))) {
                 throw new RuntimeException('Current values/version unavailable; cannot approve an update');
             }
-            if ($before === $changes) {
+            if ($operation === 'update' && $before === $changes) {
                 throw new InvalidArgumentException('No differences to approve');
             }
             $recordId = $id;
@@ -136,11 +137,65 @@ final class ApprovalGate
         $stmt->execute([$plan['id'], $actor, $this->encrypt($canonical),
                         $hash, 'pending', $plan['expires_at'], $now]);
         return [
+            'browser_approval_url' => $this->config->oauthIssuer.'/approve?proposal_id='.$plan['id'],
             'proposal' => $plan,
             'digest' => $hash,
             'status' => 'pending',
             'approval_message' => self::approvalMessage($plan, $hash),
-            'warning' => 'No SuiteCRM modification. Only an independent explicit signed approval may authorize one execution.',
+            'warning' => 'No SuiteCRM modification. Browser approval requires personal SuiteCRM authentication before execution.',
+        ];
+    }
+
+    /** Prepare an individually versioned relationship modification. */
+    public function prepareRelationship(
+        string $actor,
+        string $operation,
+        string $module,
+        string $recordId,
+        string $linkField,
+        string $relatedModule,
+        string $relatedId,
+        string $reason
+    ): array {
+        TokenVault::subject($actor);
+        if (!in_array($operation, ['link', 'unlink'], true)) {
+            throw new InvalidArgumentException('Unsupported relationship operation');
+        }
+        Policy::relationship($module, $linkField, $relatedModule);
+        $recordId = Policy::recordId($recordId);
+        $relatedId = Policy::recordId($relatedId);
+        if (strlen($reason) < 8 || strlen($reason) > 500) {
+            throw new InvalidArgumentException('Reason must have 8 to 500 characters');
+        }
+        // Require access to both records, even if the relation endpoint would
+        // otherwise accept an opaque foreign ID.
+        $original = $this->crm->getRawForDiff($actor, $module, $recordId, ['date_modified']);
+        $this->crm->getRecord($actor, $relatedModule, $relatedId);
+        $version = $original['attributes']['date_modified'] ?? null;
+        if (!is_string($version)) {
+            throw new RuntimeException('Source record version unavailable');
+        }
+        $now = time();
+        $plan = [
+            'id' => self::uuid(), 'actor_sub' => $actor, 'operation' => $operation,
+            'module' => $module, 'record_id' => $recordId,
+            'before' => ['date_modified' => $version],
+            'after' => ['link_field' => $linkField, 'related_module' => $relatedModule,
+                'related_id' => $relatedId],
+            'date_modified_before' => $version,
+            'reason' => $reason, 'created_at' => $now, 'expires_at' => $now + 900,
+        ];
+        $canonical = self::canonical($plan);
+        $digest = hash('sha256', $canonical);
+        $stmt = $this->db->prepare('INSERT INTO plans(id,actor,payload,digest,state,expires_at,created_at)
+            VALUES(?,?,?,?,?,?,?)');
+        $stmt->execute([$plan['id'], $actor, $this->encrypt($canonical),
+            $digest, 'pending', $plan['expires_at'], $now]);
+        return [
+            'browser_approval_url' => $this->config->oauthIssuer.'/approve?proposal_id='.$plan['id'],
+            'proposal' => $plan, 'digest' => $digest, 'status' => 'pending',
+            'approval_message' => self::approvalMessage($plan, $digest),
+            'warning' => 'No SuiteCRM relationship modified. Independent human approval required.',
         ];
     }
 
@@ -170,25 +225,40 @@ final class ApprovalGate
         }
         $plan = json_decode($this->decrypt($row['payload']), true, 64, JSON_THROW_ON_ERROR);
         return [
+            'browser_approval_url' => $this->config->oauthIssuer.'/approve?proposal_id='.$plan['id'],
             'proposal' => $plan,
             'digest' => $row['digest'],
-            'status' => $row['state'] === 'pending' && time() >= (int)$row['expires_at']
+            'status' => in_array($row['state'], ['pending', 'approved'], true) && time() >= (int)$row['expires_at']
                 ? 'expired' : $row['state'],
             'approval_message' => self::approvalMessage($plan, $row['digest']),
         ];
     }
 
-    /** One-time interactive confirmation without a separate signing service.
-     * The MCP host must request explicit user approval for this destructive tool.
-     */
-    public function applyConfirmed(string $actor, string $proposalId, string $confirmation): array
+    /** Used only by the browser approval route after personal CRM OAuth login. */
+    public function markBrowserApproved(string $actor, string $proposalId): void
+    {
+        if (!$this->config->allowWrites || !$this->config->workflowsReviewed) {
+            throw new RuntimeException('Writes are disabled by server policy');
+        }
+        $view = $this->status($actor, $proposalId);
+        if ($view['status'] !== 'pending') {
+            throw new RuntimeException('Proposal is no longer pending');
+        }
+        $stmt = $this->db->prepare('UPDATE plans SET state=? WHERE id=? AND actor=? AND digest=? AND state=? AND expires_at>?');
+        $stmt->execute(['approved', $proposalId, $actor, $view['digest'], 'pending', time()]);
+        if ($stmt->rowCount() !== 1) {
+            throw new RuntimeException('Proposal already approved or expired');
+        }
+    }
+
+    /** Executes only after the browser-based independent human approval. */
+    public function applyBrowserApproved(string $actor, string $proposalId): array
     {
         $view = $this->status($actor, $proposalId);
-        $expected = 'CONFIRM '.$view['proposal']['id'].' '.$view['digest'];
-        if (!hash_equals($expected, $confirmation)) {
-            throw new RuntimeException('Exact proposal confirmation required');
+        if ($view['status'] !== 'approved') {
+            throw new RuntimeException('Proposal requires a separate browser approval');
         }
-        return $this->execute($actor, $proposalId, $view);
+        return $this->execute($actor, $proposalId, $view, 'approved');
     }
 
     public function apply(string $actor, string $proposalId, string $signature): array
@@ -205,7 +275,7 @@ final class ApprovalGate
             throw new RuntimeException('Proposal is no longer pending');
         }
         $plan = $view['proposal'];
-        if (!in_array($plan['operation'] ?? null, ['create','update'], true)) {
+        if (!in_array($plan['operation'] ?? null, ['create','update','delete','link','unlink'], true)) {
             throw new RuntimeException('Only individual record changes may be applied');
         }
         $proof = base64_decode($signature, true);
@@ -217,20 +287,20 @@ final class ApprovalGate
     }
 
     /** All authorization paths share the same atomic claim and stale-state guard. */
-    private function execute(string $actor, string $proposalId, array $view): array
+    private function execute(string $actor, string $proposalId, array $view, string $expectedState = 'pending'): array
     {
         if (!$this->config->allowWrites || !$this->config->workflowsReviewed) {
             throw new RuntimeException('Writes are disabled by server policy');
         }
-        if ($view['status'] !== 'pending') {
-            throw new RuntimeException('Proposal is no longer pending');
+        if ($view['status'] !== $expectedState) {
+            throw new RuntimeException('Proposal is no longer in an executable state');
         }
         $plan = $view['proposal'];
         // Atomic claim across workers prevents replay / duplicate execution.
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare('UPDATE plans SET state=? WHERE id=? AND actor=? AND state=? AND digest=? AND expires_at>?');
-            $stmt->execute(['executing', $proposalId, $actor, 'pending', $view['digest'], time()]);
+            $stmt->execute(['executing', $proposalId, $actor, $expectedState, $view['digest'], time()]);
             if ($stmt->rowCount() !== 1) {
                 $this->db->rollBack();
                 throw new RuntimeException('Proposal was already claimed or expired');
@@ -242,17 +312,18 @@ final class ApprovalGate
             }
             throw $error;
         }
-        if ($plan['operation'] === 'update') {
+        if (in_array($plan['operation'], ['update','delete','link','unlink'], true)) {
             try {
                 $latest = $this->crm->getRawForDiff(
                     $actor,
                     $plan['module'],
                     $plan['record_id'],
-                    array_merge(array_keys($plan['after']), ['date_modified'])
+                    in_array($plan['operation'], ['delete','link','unlink'], true)
+                        ? array_keys($plan['before']) : array_merge(array_keys($plan['after']), ['date_modified'])
                 );
                 $attrs = $latest['attributes'];
-                $prior = Policy::project($attrs, array_keys($plan['after']));
-                if ($prior !== $plan['before'] ||
+                $prior = Policy::project($attrs, array_keys($plan['before']));
+                if (self::canonical($prior) !== self::canonical($plan['before']) ||
                     ($attrs['date_modified'] ?? null) !== $plan['date_modified_before']) {
                     $this->finish($plan['id'], 'stale');
                     throw new RuntimeException('Record changed after human approval; prepare a new proposal');
@@ -263,13 +334,30 @@ final class ApprovalGate
             }
         }
         try {
-            $result = $this->crm->writeApproved(
-                $actor,
-                $plan['operation'],
-                $plan['module'],
-                $plan['after'],
-                $plan['record_id']
-            );
+            if (in_array($plan['operation'], ['link', 'unlink'], true)) {
+                // The target still needs to exist and remain visible to this
+                // user's personal SuiteCRM identity at execution time.
+                $target = $plan['after'];
+                Policy::relationship($plan['module'], $target['link_field'], $target['related_module']);
+                $this->crm->getRecord($actor, $target['related_module'], $target['related_id']);
+                $result = $this->crm->writeRelationship(
+                    $actor,
+                    $plan['operation'],
+                    $plan['module'],
+                    $plan['record_id'],
+                    $target['link_field'],
+                    $target['related_module'],
+                    $target['related_id']
+                );
+            } else {
+                $result = $this->crm->writeApproved(
+                    $actor,
+                    $plan['operation'],
+                    $plan['module'],
+                    $plan['after'],
+                    $plan['record_id']
+                );
+            }
             $this->finish($plan['id'], 'applied');
             return ['status' => 'applied', 'proposal_id' => $plan['id'],
                     'record_id' => $result['record_id'], 'actor_sub' => $actor];
