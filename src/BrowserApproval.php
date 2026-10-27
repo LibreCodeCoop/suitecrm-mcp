@@ -50,6 +50,11 @@ final class BrowserApproval
     {
         $this->requireEnabled();
         $proposalId = Policy::recordId($proposalId);
+        if (!$this->gate->isPending($proposalId)) {
+            throw new RuntimeException('Proposal is not available for approval');
+        }
+        $this->db->prepare('DELETE FROM browser_logins WHERE expires<?')->execute([time()]);
+        $this->db->prepare('DELETE FROM browser_sessions WHERE expires<?')->execute([time()]);
         // No proposal data is displayed until a matching personal CRM login.
         $state = self::nonce();
         $this->db->prepare('INSERT INTO browser_logins VALUES (?, ?, ?)')

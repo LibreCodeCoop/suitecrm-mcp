@@ -126,6 +126,13 @@ final class BrowserApprovalTest extends TestCase
         }
     }
 
+    public function testApprovalStartRejectsNonexistentProposalBeforeAllocatingSession(): void
+    {
+        $browser = new BrowserApproval($this->config, new ApprovalGate($this->config, $this->gateway), $this->oauth);
+        $this->expectException(RuntimeException::class);
+        $browser->begin('11111111-2222-4333-a444-555555555555');
+    }
+
     public function testCallbackStateIsOneTimeEvenWhenAuthenticationFails(): void
     {
         [, $browser, , $state] = $this->setupReview();

@@ -234,6 +234,15 @@ final class ApprovalGate
         ];
     }
 
+    /** Check existence without revealing any proposal fields or CRM data. */
+    public function isPending(string $proposalId): bool
+    {
+        $id = Policy::recordId($proposalId);
+        $q = $this->db->prepare('SELECT 1 FROM plans WHERE id=? AND state=? AND expires_at>?');
+        $q->execute([$id, 'pending', time()]);
+        return $q->fetchColumn() !== false;
+    }
+
     /** Used only by the browser approval route after personal CRM OAuth login. */
     public function markBrowserApproved(string $actor, string $proposalId): void
     {
