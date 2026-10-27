@@ -94,7 +94,7 @@ final class SuiteCrmHttp implements ApiClient
             }
             return $value;
         } finally {
-            curl_close($handle);
+            unset($handle);
         }
     }
 
