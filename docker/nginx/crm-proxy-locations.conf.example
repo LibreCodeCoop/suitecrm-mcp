@@ -82,3 +82,22 @@ location = /suitecrm-mcp-auth/token {
     proxy_read_timeout 15s;
     proxy_redirect off;
 }
+
+# Browser login + one-time human approval form (requires SuiteCRM OAuth).
+location = /suitecrm-mcp-auth/approve {
+    access_log off;
+    limit_except GET POST { deny all; }
+    client_max_body_size 8k;
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $librecode_mcp_oauth_upstream "http://suitecrm-mcp-oauth-edge:8081";
+    proxy_pass $librecode_mcp_oauth_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host crm.example.com;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 4s;
+    proxy_read_timeout 15s;
+    proxy_redirect off;
+}

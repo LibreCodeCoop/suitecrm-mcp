@@ -68,7 +68,7 @@ It must never connect to production SuiteCRM.
 ## 4. Release
 
 Use the reviewed source and a tagged, security-patched stable PHP image.
-Create a consistent snapshot of all three SQLite files **and** securely back
+Create a consistent snapshot of all four SQLite files **and** securely back
 up the decryption key, then record the previous Docker image ID.
 
 ```sh
@@ -82,8 +82,19 @@ docker compose --profile chatgpt --profile oauth-edge \
 
 Validate private health, public OAuth metadata, unauthorized MCP rejection,
 a real personal `crm_whoami` and minimally scoped read-only record lookups.
-Confirm commercial write flags remain `false`. No production writes are needed
-for verification.
+When explicitly enabling authenticated interactive writes, first review
+actual SuiteCRM workflows and notification side effects and expose only the
+exact `/<ISSUER_SEGMENT>/approve` route through the existing TLS reverse proxy
+using the repository's proxy configuration example. Keep the existing OAuth
+callback URI and token stores unchanged. Set both `MCP_ALLOW_WRITES=true` and
+`MCP_WORKFLOWS_REVIEWED=true` only after these checks and confirm that the
+browser review page rejects mismatched CRM identities and missing CSRF tokens.
+No real customer record should be written during deployment verification;
+use a clearly named disposable synthetic account only with explicit operator
+approval, then verify its deletion and re-query the record.
+
+Until all gates have been reviewed, leave commercial write flags `false`.
+
 
 ### Replacing the private nginx or updating the tunnel
 

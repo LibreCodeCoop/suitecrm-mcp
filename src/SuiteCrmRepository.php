@@ -90,8 +90,8 @@ final class SuiteCrmRepository implements CrmGateway
         int $pageSize = 10
     ): array {
         Policy::module($module);
-        if ($page < 1 || $page > 5 || $pageSize < 1 || $pageSize > 20) {
-            throw new \InvalidArgumentException('Pagination must be between 1-5 and 1-20');
+        if ($page < 1 || $page > 1000 || $pageSize < 1 || $pageSize > 20) {
+            throw new \InvalidArgumentException('Pagination must be between 1-1000 and 1-20');
         }
         $selected = Policy::fields($module, $fields);
         $records = $this->http->request(
@@ -99,6 +99,39 @@ final class SuiteCrmRepository implements CrmGateway
             '/Api/V8/module/'.$module,
             $this->userToken($subject),
             query: [
+                'page[number]' => $page,
+                'page[size]' => $pageSize,
+                'fields['.$module.']' => implode(',', $selected),
+            ]
+        );
+        return [
+            'module' => $module,
+            'page' => $page,
+            'page_size' => $pageSize,
+            'records' => $this->sanitize($records, $selected),
+        ];
+    }
+
+    public function searchRecords(
+        string $subject,
+        string $module,
+        string $field,
+        string $value,
+        int $page = 1,
+        int $pageSize = 10
+    ): array {
+        Policy::fields($module, [$field]);
+        if ($page < 1 || $page > 1000 || $pageSize < 1 || $pageSize > 20 ||
+            $value === '' || strlen($value) > 200) {
+            throw new \InvalidArgumentException('Invalid search constraints');
+        }
+        $selected = Policy::fields($module);
+        $records = $this->http->request(
+            'GET',
+            '/Api/V8/module/'.$module,
+            $this->userToken($subject),
+            query: [
+                'filter['.$field.'][eq]' => $value,
                 'page[number]' => $page,
                 'page[size]' => $pageSize,
                 'fields['.$module.']' => implode(',', $selected),
@@ -157,6 +190,55 @@ final class SuiteCrmRepository implements CrmGateway
         return $result;
     }
 
+    public function getRelated(string $subject, string $module, string $recordId, string $linkField, string $relatedModule): array
+    {
+        Policy::relationship($module, $linkField, $relatedModule);
+        $response = $this->http->request('GET', '/Api/V8/module/'.$module.'/'.Policy::recordId($recordId).
+            '/relationships/'.$linkField, $this->userToken($subject));
+        $rows = $response['data'] ?? [];
+        if (!is_array($rows)) {
+            throw new RuntimeException('Malformed CRM relationship response');
+        }
+        if (isset($rows['id'])) {
+            $rows = [$rows];
+        }
+        $result = [];
+        foreach (array_slice($rows, 0, 20) as $row) {
+            if (is_array($row) && ($row['type'] ?? null) === $relatedModule && is_string($row['id'] ?? null)) {
+                $result[] = ['type' => $relatedModule, 'id' => Policy::recordId($row['id'])];
+            }
+        }
+        return ['module' => $module, 'related_module' => $relatedModule, 'records' => $result];
+    }
+
+    public function writeRelationship(
+        string $subject,
+        string $operation,
+        string $module,
+        string $recordId,
+        string $linkField,
+        string $relatedModule,
+        string $relatedId
+    ): array {
+        Policy::relationship($module, $linkField, $relatedModule);
+        $recordId = Policy::recordId($recordId);
+        $relatedId = Policy::recordId($relatedId);
+        $path = '/Api/V8/module/'.$module.'/'.$recordId.'/relationships/'.$linkField;
+        if ($operation === 'link') {
+            $this->http->request(
+                'POST',
+                $path,
+                $this->userToken($subject),
+                payload: ['data' => ['type' => $relatedModule, 'id' => $relatedId]]
+            );
+        } elseif ($operation === 'unlink') {
+            $this->http->request('DELETE', $path.'/'.$relatedId, $this->userToken($subject));
+        } else {
+            throw new \InvalidArgumentException('Invalid relationship change');
+        }
+        return ['record_id' => $recordId];
+    }
+
     public function getRawForDiff(string $subject, string $module, string $id, array $fields): array
     {
         return $this->getRecord($subject, $module, $id, $fields);
@@ -169,10 +251,15 @@ final class SuiteCrmRepository implements CrmGateway
         array $attrs,
         ?string $id
     ): array {
-        if ($method !== 'create' && $method !== 'update') {
+        if (!in_array($method, ['create','update','delete'], true)) {
             throw new RuntimeException('Unsupported write operation');
         }
         Policy::changes($module, $attrs, $method);
+        if ($method === 'delete') {
+            $recordId = Policy::recordId($id ?? '');
+            $this->http->request('DELETE', '/Api/V8/module/'.$module.'/'.$recordId, $this->userToken($subject));
+            return ['record_id' => $recordId];
+        }
         $data = ['type' => $module, 'attributes' => $attrs];
         if ($method === 'update') {
             $data['id'] = Policy::recordId($id ?? '');

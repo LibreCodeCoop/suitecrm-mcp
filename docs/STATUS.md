@@ -29,3 +29,19 @@ PHPUnit 13 suite. Full qualification is **not complete**: PHP-CS-Fixer 3.95.27
 explicitly reports syntax support only through PHP 8.5, and PHPStan 2 ran into
 a native parallel-worker crash on the PHP 8.6 RC image. Keep stable production
 on PHP 8.5.12 and reevaluate upstream releases after PHP 8.6 GA.
+
+## Browser-approved SuiteCRM writes
+
+The server supports individually prepared create/update/delete proposals for
+allowed business modules, exact-name search, and an OAuth-backed human approval
+page. The browser authenticates separately to SuiteCRM, verifies the same user
+identity, shows before/after changes and requires a CSRF-protected POST. The
+MCP executor accepts only a consumed, browser-approved proposal and the normal
+SuiteCRM user ACL. The older independent manager signature path is retained.
+
+Deployment requires two explicit write switches and validated public routing
+for `/<issuer>/approve`. Both switches stay disabled until the deployment's
+SuiteCRM workflows, notification effects, and permissions are reviewed. Full
+administrative, arbitrary custom relationships and bespoke process API coverage
+remain outside this restricted CRM business-record surface and must not be advertised as
+implemented.

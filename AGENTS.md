@@ -20,7 +20,7 @@ Read the README, deployment documentation, and nearby tests first. This is a
 - Do not publish `/mcp`, internal `/oauth/token`, `/healthz`, or private data.
 - Validate HTTPS issuer/host and OAuth resource against private configuration.
   Public source files must use example hostnames and synthetic IDs.
-- Commercial changes require signed independent approval for the exact change,
+- Commercial changes require independent browser-authenticated or signed approval for the exact change,
   with separate review of SuiteCRM automation side effects.
 
 ## Development workflow

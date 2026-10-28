@@ -65,6 +65,52 @@ final class Tools
         return $this->crm->listRecords($subject, $module, [], $page, $pageSize);
     }
 
+    /** Search one allowed field by exact value to avoid duplicate CRM records. */
+    public function crmSearchRecords(
+        RequestContext $context,
+        string $module,
+        string $field,
+        string $value,
+        int $page = 1,
+        int $pageSize = 10
+    ): array {
+        return $this->crm->searchRecords($this->subject($context), $module, $field, $value, $page, $pageSize);
+    }
+
+    /** List authorized relationship IDs for a supported link field. */
+    public function crmGetRelated(
+        RequestContext $context,
+        string $module,
+        string $recordId,
+        string $linkField,
+        string $relatedModule
+    ): array {
+        return $this->crm->getRelated($this->subject($context), $module, $recordId, $linkField, $relatedModule);
+    }
+
+    /** Prepare one relationship link/unlink; no SuiteCRM changes occur. */
+    public function crmPrepareRelationshipChange(
+        RequestContext $context,
+        string $operation,
+        string $module,
+        string $recordId,
+        string $linkField,
+        string $relatedModule,
+        string $relatedId,
+        string $reason
+    ): array {
+        return $this->approvals->prepareRelationship(
+            $this->subject($context),
+            $operation,
+            $module,
+            $recordId,
+            $linkField,
+            $relatedModule,
+            $relatedId,
+            $reason
+        );
+    }
+
     /** Fetch one record; user-level SuiteCRM ACL and MCP field policy both apply. */
     public function crmGetRecord(
         RequestContext $context,
@@ -88,11 +134,11 @@ final class Tools
         if (strlen($changesJson) > 12000) {
             throw new RuntimeException('The proposed change is too large');
         }
-        $changes = json_decode($changesJson, true, 10, JSON_THROW_ON_ERROR);
-        if (!is_array($changes) || array_is_list($changes)) {
+        $parsed = json_decode($changesJson, false, 10, JSON_THROW_ON_ERROR);
+        if (!$parsed instanceof \stdClass) {
             throw new RuntimeException('Changes must be a JSON object');
         }
-        return $this->approvals->prepare($subject, $operation, $module, $recordId, $changes, $reason);
+        return $this->approvals->prepare($subject, $operation, $module, $recordId, (array) $parsed, $reason);
     }
 
     /** Display exact before/after values for a pending proposal, without executing. */
@@ -127,6 +173,12 @@ final class Tools
             'changed_suitecrm' => false,
             'review_required' => 'Administrator and management approval required; manual or staged application.',
         ];
+    }
+
+    /** Execute one proposal after separate browser-based SuiteCRM OAuth approval. */
+    public function crmApplyBrowserApprovedChange(RequestContext $context, string $proposalId): array
+    {
+        return $this->approvals->applyBrowserApproved($this->subject($context), $proposalId);
     }
 
     /** Execute one independently signed human-approved change; disabled in Compose. */

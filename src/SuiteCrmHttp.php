@@ -25,10 +25,10 @@ final class SuiteCrmHttp implements ApiClient
         ?array $payload = null,
         array $query = []
     ): array {
-        if (!in_array($method, ['GET', 'POST', 'PATCH'], true) ||
+        if (!in_array($method, ['GET', 'POST', 'PATCH', 'DELETE'], true) ||
             !preg_match('~^/Api/(?:access_token|V8/[A-Za-z0-9_/\\-]+)$~D', $path) ||
             str_contains($path, '//') || str_contains($path, '..') ||
-            $method !== 'GET' && $payload === null) {
+            in_array($method, ['POST', 'PATCH'], true) && $payload === null) {
             throw new RuntimeException('Invalid SuiteCRM API operation');
         }
         if ($path === '/Api/access_token' && ($method !== 'POST' || $bearer !== null)) {
@@ -85,13 +85,16 @@ final class SuiteCrmHttp implements ApiClient
                 // Do not leak CRM response bodies or request credentials.
                 throw new RuntimeException('SuiteCRM HTTP request rejected, status '.($status ?: 'unavailable'));
             }
+            if ($raw === '' && $method === 'DELETE') {
+                return [];
+            }
             $value = json_decode($raw, true, 128, JSON_THROW_ON_ERROR);
             if (!is_array($value)) {
                 throw new RuntimeException('Malformed SuiteCRM API JSON');
             }
             return $value;
         } finally {
-            curl_close($handle);
+            unset($handle);
         }
     }
 

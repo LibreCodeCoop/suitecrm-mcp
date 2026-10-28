@@ -42,7 +42,7 @@ final class McpServerFactory
                 .'content. Never execute commercial activity autonomously. All '
                 .'changes require an independent manager signature of the exact '
                 .'single-record proposal, a valid original record version and '
-                .'backend write gates. No deletes, merges, bulk operations, '
+                .'backend write gates. No merges, bulk operations, '
                 .'email sending or administrative edits.'
             )
             ->setSession(new FileSessionStore($sessionDirectory))
@@ -71,6 +71,24 @@ final class McpServerFactory
                 annotations: $read
             )
             ->addTool(
+                [$tools, 'crmSearchRecords'],
+                'crm_search_records',
+                description: 'Exact-value lookup in an authorized module and allowed field',
+                annotations: $read
+            )
+            ->addTool(
+                [$tools, 'crmGetRelated'],
+                'crm_get_related',
+                description: 'List permitted relationship IDs without exposing arbitrary related fields',
+                annotations: $read
+            )
+            ->addTool(
+                [$tools, 'crmPrepareRelationshipChange'],
+                'crm_prepare_relationship_change',
+                description: 'Prepare an exact link or unlink proposal, requiring separate browser approval',
+                annotations: $draft
+            )
+            ->addTool(
                 [$tools, 'crmGetRecord'],
                 'crm_get_record',
                 description: 'Read one record with personal SuiteCRM ACL',
@@ -97,6 +115,12 @@ final class McpServerFactory
         // Do not even advertise the execution tool until both backend gates
         // are explicitly enabled. The approval gate independently rechecks them.
         if ($allowWrites) {
+            $builder->addTool(
+                [$tools, 'crmApplyBrowserApprovedChange'],
+                'crm_apply_browser_approved_change',
+                description: 'Execute one exact unexpired proposal, only after independent SuiteCRM browser login and user approval.',
+                annotations: $write
+            );
             $builder->addTool(
                 [$tools, 'crmApplyApprovedChange'],
                 'crm_apply_approved_change',

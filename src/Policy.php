@@ -20,10 +20,27 @@ final class Policy
         'status','description','account_id','account_name','contact_id','contact_name',
         'opportunity_id','parent_id','parent_type','assigned_user_id','assigned_user_name',
         'date_start','date_due','date_closed','sales_stage','next_step','probability',
-        'amount','lead_source','email1','phone_work','phone_mobile','industry','website',
+        'amount','lead_source','email1','phone_work','phone_mobile','phone_office','phone_fax','industry','website','account_type',
+        'billing_address_street','billing_address_city','billing_address_state',
+        'billing_address_postalcode','billing_address_country',
+        'shipping_address_street','shipping_address_city','shipping_address_state',
+        'shipping_address_postalcode','shipping_address_country',
         'canaldeorigem_c','segmento_c','status_cliente_c','list_porte_c',
     ];
-    private const MUTABLE_MODULES = ['Accounts','Contacts','Leads','Opportunities','Tasks','Notes'];
+    private const MUTABLE_MODULES = ['Accounts','Contacts','Leads','Opportunities','Tasks','Notes',
+        'Meetings','Calls','AOS_Quotes','AOS_Contracts','Documents','FP_events','Cases','Project'];
+    /** Standard SuiteCRM link fields; custom relationships need an explicit policy review. */
+    private const RELATIONSHIPS = [
+        'Accounts' => ['contacts' => 'Contacts', 'opportunities' => 'Opportunities',
+            'cases' => 'Cases', 'notes' => 'Notes', 'tasks' => 'Tasks',
+            'calls' => 'Calls', 'meetings' => 'Meetings'],
+        'Contacts' => ['accounts' => 'Accounts', 'opportunities' => 'Opportunities',
+            'cases' => 'Cases', 'calls' => 'Calls', 'meetings' => 'Meetings',
+            'tasks' => 'Tasks', 'notes' => 'Notes'],
+        'Opportunities' => ['accounts' => 'Accounts', 'contacts' => 'Contacts',
+            'calls' => 'Calls', 'meetings' => 'Meetings', 'tasks' => 'Tasks'],
+        'Leads' => ['accounts' => 'Accounts', 'contacts' => 'Contacts'],
+    ];
     private const IMMUTABLE_FIELDS = ['id','date_entered','date_modified','assigned_user_name','account_name','contact_name','deleted','created_by'];
     private const SENSITIVE_REGEX = '/(?:^|_)(?:bank|banco|pix|checking|cpf|cnpj|rg|password|secret|token|oauth|salario|salary|backup|private|nit|pis|data_nascimento|nome_mae|nome_pai)(?:_|$)/i';
 
@@ -60,12 +77,17 @@ final class Policy
     {
         self::module($module);
         if (!in_array($module, self::MUTABLE_MODULES, true) ||
-            !in_array($operation, ['create','update'], true) ||
-            ($operation === 'update' && $module === 'Notes')) {
+            !in_array($operation, ['create','update','delete'], true)) {
             throw new InvalidArgumentException('This change is not supported');
         }
-        if (count($attrs) < 1 || count($attrs) > 10) {
-            throw new InvalidArgumentException('Provide 1-10 changed fields');
+        if ($operation === 'delete') {
+            if ($attrs !== []) {
+                throw new InvalidArgumentException('Deletion accepts no changed attributes');
+            }
+            return [];
+        }
+        if (count($attrs) < 1 || count($attrs) > 20) {
+            throw new InvalidArgumentException('Provide 1-20 changed fields');
         }
         self::fields($module, array_keys($attrs));
         if ($operation === 'create' && in_array($module, ['Notes', 'Tasks'], true)) {
@@ -91,6 +113,16 @@ final class Policy
             }
         }
         return $attrs;
+    }
+
+    /** Require the advertised relationship and expected target module. */
+    public static function relationship(string $module, string $linkField, string $relatedModule): void
+    {
+        self::module($module);
+        self::module($relatedModule);
+        if ((self::RELATIONSHIPS[$module][$linkField] ?? null) !== $relatedModule) {
+            throw new InvalidArgumentException('Relationship is not enabled by policy');
+        }
     }
 
     public static function recordId(string $recordId): string
