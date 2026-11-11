@@ -38,6 +38,11 @@ page. The browser authenticates separately to SuiteCRM, verifies the same user
 identity, shows before/after changes and requires a CSRF-protected POST. The
 MCP executor accepts only a consumed, browser-approved proposal and the normal
 SuiteCRM user ACL. The older independent manager signature path is retained.
+For MCP clients with a cached tool catalog that lacks `crm_apply_browser_approved_change`, the
+existing `crm_apply_approved_change` accepts an empty `approvalSignature`
+**only after** the same user has completed the browser approval. This is a
+compatibility selector, not an authorization shortcut: pending, expired,
+cross-user and replayed proposals are still rejected.
 
 Deployment requires two explicit write switches and validated public routing
 for `/<issuer>/approve`. Both switches stay disabled until the deployment's

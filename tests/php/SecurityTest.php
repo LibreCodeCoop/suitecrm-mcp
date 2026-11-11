@@ -215,6 +215,54 @@ final class SecurityTest extends TestCase
         }
     }
 
+    public function testLegacyExecutorRequiresPriorBrowserApprovalForEmptySignature(): void
+    {
+        $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
+        $proposal = $this->prepare($gate);
+        $id = $proposal['proposal']['id'];
+
+        try {
+            $gate->apply('member-01', $id, '');
+            self::fail('An empty signature bypassed browser approval');
+        } catch (RuntimeException) {
+            self::assertSame([], $this->crm->calls);
+        }
+
+        $gate->markBrowserApproved('member-01', $id);
+
+        try {
+            $gate->apply('member-02', $id, '');
+            self::fail('Another user executed a browser-approved proposal');
+        } catch (RuntimeException) {
+            self::assertSame([], $this->crm->calls);
+        }
+
+        self::assertSame('applied', $gate->apply('member-01', $id, '')['status']);
+        self::assertCount(1, $this->crm->calls);
+
+        try {
+            $gate->apply('member-01', $id, '');
+            self::fail('Browser approval was replayed');
+        } catch (RuntimeException) {
+            self::assertCount(1, $this->crm->calls);
+        }
+    }
+
+    public function testLegacyExecutorRejectsFakeSignatureForBrowserApproval(): void
+    {
+        $gate = new ApprovalGate($this->enabledConfig(), $this->crm);
+        $proposal = $this->prepare($gate);
+        $id = $proposal['proposal']['id'];
+        $gate->markBrowserApproved('member-01', $id);
+
+        $this->expectException(RuntimeException::class);
+        try {
+            $gate->apply('member-01', $id, 'browser-approved');
+        } finally {
+            self::assertSame([], $this->crm->calls);
+        }
+    }
+
     public function testDisabledGateRejectsBrowserApproval(): void
     {
         $gate = new ApprovalGate($this->config, $this->crm);
