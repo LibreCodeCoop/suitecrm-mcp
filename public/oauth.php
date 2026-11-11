@@ -82,6 +82,10 @@ try {
         }
         if ($approvals->hasState($state)) {
             $review = $approvals->complete($state, $code);
+            // A no-referrer policy on the review document causes browsers to
+            // send Origin: null for its HTML form POST. Send only the origin,
+            // never the OAuth callback path, code or state in Referer.
+            header('Referrer-Policy: '.BrowserApprovalForm::REVIEW_REFERRER_POLICY);
             setcookie('suitecrm_mcp_approval', $review['ticket'], [
                 'expires' => time() + 300, 'path' => $issuerPath,
                 'secure' => true, 'httponly' => true, 'samesite' => 'Lax',

@@ -9,6 +9,12 @@ namespace SuiteCrmMcp;
 final class BrowserApprovalForm
 {
     /**
+     * Prevent Origin: null on the same-origin HTML form POST without sending
+     * OAuth authorization codes or callback query parameters in Referer.
+     */
+    public const REVIEW_REFERRER_POLICY = 'origin';
+
+    /**
      * A model cannot satisfy this form: it requires a fresh HttpOnly cookie,
      * the corresponding CSRF secret in the HTML, and a same-origin browser POST.
      * Origin / Fetch Metadata are additional checks when transmitted;
