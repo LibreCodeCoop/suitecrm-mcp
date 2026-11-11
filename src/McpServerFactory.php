@@ -124,7 +124,7 @@ final class McpServerFactory
             $builder->addTool(
                 [$tools, 'crmApplyApprovedChange'],
                 'crm_apply_approved_change',
-                description: 'Only execute after external manager signature and server gates',
+                description: 'Execute with manager signature, or empty signature after separate browser approval; server gates always apply.',
                 annotations: $write
             );
         }

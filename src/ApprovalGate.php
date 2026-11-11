@@ -275,11 +275,17 @@ final class ApprovalGate
         if (!$this->config->allowWrites || !$this->config->workflowsReviewed) {
             throw new RuntimeException('Writes are disabled by server policy');
         }
+        $view = $this->status($actor, $proposalId);
+        // Compatibility with MCP clients that expose only the signed executor.
+        // An empty signature is not an approval: the browser must already have
+        // authenticated the same CRM user and approved this exact proposal.
+        if ($signature === '' && $view['status'] === 'approved') {
+            return $this->applyBrowserApproved($actor, $proposalId);
+        }
         $pub = $this->config->approverPublicKey;
         if (!is_string($pub)) {
             throw new RuntimeException('No human approver public key configured');
         }
-        $view = $this->status($actor, $proposalId);
         if ($view['status'] !== 'pending') {
             throw new RuntimeException('Proposal is no longer pending');
         }

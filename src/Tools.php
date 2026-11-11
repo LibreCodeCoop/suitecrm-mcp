@@ -181,7 +181,7 @@ final class Tools
         return $this->approvals->applyBrowserApproved($this->subject($context), $proposalId);
     }
 
-    /** Execute one independently signed human-approved change; disabled in Compose. */
+    /** Execute after a manager signature, or existing browser approval with an empty signature. */
     public function crmApplyApprovedChange(
         RequestContext $context,
         string $proposalId,
