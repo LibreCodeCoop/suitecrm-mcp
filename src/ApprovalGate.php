@@ -12,6 +12,10 @@ use RuntimeException;
 
 final class ApprovalGate
 {
+    // Keep proposals available for two hours while OAuth state, review cookie,
+    // and CSRF approvals retain their independent short one-time lifetimes.
+    public const PROPOSAL_LIFETIME_SECONDS = 7200;
+
     private PDO $db;
 
     public function __construct(
@@ -128,7 +132,7 @@ final class ApprovalGate
             'date_modified_before' => $oldVersion,
             'reason' => $reason,
             'created_at' => $now,
-            'expires_at' => $now + 900,
+            'expires_at' => $now + self::PROPOSAL_LIFETIME_SECONDS,
         ];
         $canonical = self::canonical($plan);
         $hash = hash('sha256', $canonical);
@@ -183,7 +187,8 @@ final class ApprovalGate
             'after' => ['link_field' => $linkField, 'related_module' => $relatedModule,
                 'related_id' => $relatedId],
             'date_modified_before' => $version,
-            'reason' => $reason, 'created_at' => $now, 'expires_at' => $now + 900,
+            'reason' => $reason, 'created_at' => $now,
+            'expires_at' => $now + self::PROPOSAL_LIFETIME_SECONDS,
         ];
         $canonical = self::canonical($plan);
         $digest = hash('sha256', $canonical);

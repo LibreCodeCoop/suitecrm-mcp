@@ -33,8 +33,11 @@ Only then can the MCP execute that approved proposal. Neither the agent nor the
 MCP token alone can authorize a browser approval. The existing independent
 manager-signature path remains compatible with prior installations.
 
-All writes use a single-record proposal, a 15-minute lifetime, one-time atomic
+All writes use a single-record proposal, a two-hour lifetime, one-time atomic
 claim, actor binding and a final `date_modified` check for updates and deletes.
+OAuth login state and the browser review cookie remain valid for only five
+minutes per login/review attempt; extending a proposal does not extend these
+short-lived security credentials.
 Upstream SuiteCRM ACLs are always enforced with the user's personal token.
 Uncertain network results cannot be retried automatically. Deletion uses the
 SuiteCRM API v8 record deletion contract and must be approved separately.

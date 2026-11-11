@@ -158,6 +158,32 @@ final class SecurityTest extends TestCase
         );
     }
 
+    public function testRegularAndRelationshipProposalsExpireAfterTwoHours(): void
+    {
+        $gate = new ApprovalGate($this->config, $this->crm);
+        $regular = $this->prepare($gate)['proposal'];
+        $relationship = $gate->prepareRelationship(
+            'member-01',
+            'link',
+            'Accounts',
+            '11111111-2222-4333-a444-555555555555',
+            'contacts',
+            'Contacts',
+            '22222222-3333-4333-a444-555555555555',
+            'Link authorized contact to account'
+        )['proposal'];
+
+        self::assertSame(7200, ApprovalGate::PROPOSAL_LIFETIME_SECONDS);
+        foreach ([$regular, $relationship] as $proposal) {
+            self::assertSame(
+                ApprovalGate::PROPOSAL_LIFETIME_SECONDS,
+                $proposal['expires_at'] - $proposal['created_at']
+            );
+            self::assertSame('pending', $gate->status('member-01', $proposal['id'])['status']);
+        }
+        self::assertSame([], $this->crm->calls);
+    }
+
     public function testProposalIsNotCommercialWrite(): void
     {
         $gate = new ApprovalGate($this->config, $this->crm);
