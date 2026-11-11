@@ -15,6 +15,17 @@ final class BrowserApprovalFormTest extends TestCase
     private const ORIGIN = 'https://crm.example.com';
     private const TOKEN = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq';
 
+    public function testReviewPageAllowsFormOriginWithoutDisclosingOAuthCodeInReferrer(): void
+    {
+        self::assertSame('origin', BrowserApprovalForm::REVIEW_REFERRER_POLICY);
+    }
+
+    public function testRejectsNullOriginRatherThanWeakeningCsrfDefense(): void
+    {
+        $this->expectException(BrowserApprovalFormError::class);
+        BrowserApprovalForm::validate(self::ORIGIN, 'null', 'same-origin', self::TOKEN, self::TOKEN);
+    }
+
     public function testAcceptsExplicitSameOriginPost(): void
     {
         self::assertSame([self::TOKEN, self::TOKEN], BrowserApprovalForm::validate(
