@@ -128,8 +128,11 @@ final class BrowserApproval
             $q = $this->db->prepare('SELECT * FROM browser_sessions WHERE digest=? AND expires>?');
             $q->execute([$digest, time()]);
             $row = $q->fetch();
-            if (!is_array($row) || !hash_equals($row['csrf_digest'], hash('sha256', $csrf))) {
-                throw new RuntimeException('Invalid or expired browser approval session');
+            if (!is_array($row)) {
+                throw new BrowserApprovalFormError('session_expired_or_used');
+            }
+            if (!hash_equals($row['csrf_digest'], hash('sha256', $csrf))) {
+                throw new BrowserApprovalFormError('csrf_invalid');
             }
             $this->db->prepare('DELETE FROM browser_sessions WHERE digest=?')->execute([$digest]);
             $this->db->commit();

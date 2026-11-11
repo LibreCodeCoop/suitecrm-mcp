@@ -6,6 +6,8 @@ declare(strict_types=1);
 
 use SuiteCrmMcp\ApprovalGate;
 use SuiteCrmMcp\BrowserApproval;
+use SuiteCrmMcp\BrowserApprovalForm;
+use SuiteCrmMcp\BrowserApprovalFormError;
 use SuiteCrmMcp\Config;
 use SuiteCrmMcp\LocalAuthorizationServer;
 use SuiteCrmMcp\SuiteCrmHttp;
@@ -44,17 +46,17 @@ try {
     }
     if ($path === $issuerPath.'/approve' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $expectedOrigin = parse_url($config->oauthIssuer, PHP_URL_SCHEME).'://'.parse_url($config->oauthIssuer, PHP_URL_HOST);
-        $ticket = $_COOKIE['suitecrm_mcp_approval'] ?? null;
-        $csrf = $_POST['csrf'] ?? null;
-        if (!hash_equals($expectedOrigin, (string) ($_SERVER['HTTP_ORIGIN'] ?? '')) ||
-            !is_string($ticket) || !is_string($csrf) ||
-            strlen($ticket) !== 43 || strlen($csrf) !== 43) {
-            throw new RuntimeException('Invalid approval form');
-        }
+        [$ticket, $csrf] = BrowserApprovalForm::validate(
+            $expectedOrigin,
+            isset($_SERVER['HTTP_ORIGIN']) ? (string) $_SERVER['HTTP_ORIGIN'] : null,
+            isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? (string) $_SERVER['HTTP_SEC_FETCH_SITE'] : null,
+            $_COOKIE['suitecrm_mcp_approval'] ?? null,
+            $_POST['csrf'] ?? null
+        );
         $id = $approvals->approve($ticket, $csrf);
         setcookie('suitecrm_mcp_approval', '', [
             'expires' => time() - 3600, 'path' => $issuerPath,
-            'secure' => true, 'httponly' => true, 'samesite' => 'Strict',
+            'secure' => true, 'httponly' => true, 'samesite' => 'Lax',
         ]);
         header('Content-Type: text/html; charset=utf-8');
         echo '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>SuiteCRM</title><body>';
@@ -82,7 +84,7 @@ try {
             $review = $approvals->complete($state, $code);
             setcookie('suitecrm_mcp_approval', $review['ticket'], [
                 'expires' => time() + 300, 'path' => $issuerPath,
-                'secure' => true, 'httponly' => true, 'samesite' => 'Strict',
+                'secure' => true, 'httponly' => true, 'samesite' => 'Lax',
             ]);
             $proposal = $review['proposal']['proposal'];
             $summary = json_encode([
@@ -120,6 +122,23 @@ try {
     }
     header('Location: '.$destination, true, 303);
 } catch (Throwable $error) {
+    // Human browser approvals must not return a cryptic OAuth JSON error.
+    // Only emit fixed, non-sensitive reason codes: never tokens, cookies,
+    // authorization codes, CSRF values, subjects, or exception messages.
+    if (isset($issuerPath, $path) && $path === $issuerPath.'/approve') {
+        $reason = $error instanceof BrowserApprovalFormError ? $error->reason : 'approval_session_rejected';
+        error_log('Browser approval rejected: '.$reason.' ('.get_class($error).')');
+        http_response_code(400);
+        header('Content-Type: text/html; charset=utf-8');
+        header("Content-Security-Policy: default-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+        echo '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>SuiteCRM: aprovação não concluída</title>';
+        echo '<body><h1>Não foi possível concluir a aprovação</h1>';
+        echo '<p>Nenhuma alteração foi executada. Abra novamente a proposta no ChatGPT e faça a autenticação e a aprovação no mesmo navegador.</p>';
+        echo '<p>Código de diagnóstico: <code>'.htmlspecialchars($reason, ENT_QUOTES, 'UTF-8').'</code></p>';
+        echo '</body></html>';
+        exit;
+    }
+
     error_log('Local OAuth broker rejected request: '.get_class($error));
     header('Content-Type: application/json');
     http_response_code(400);
